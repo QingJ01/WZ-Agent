@@ -184,7 +184,17 @@ class YaoDecisionBrain:
                 YaoAction("cast_q", "enemy_in_q_range", 50, target=q_target)
             )
 
-        if state.yao_state != "deer" and cooldowns.e_ready and e_target is not None:
+        allow_second_skill = (
+            state.yao_state == "attached"
+            or not state.is_moving
+            or state.battle_state == "fight"
+        )
+        if (
+            state.yao_state != "deer"
+            and cooldowns.e_ready
+            and e_target is not None
+            and allow_second_skill
+        ):
             actions.append(
                 YaoAction("cast_e", "enemy_in_e_range", 40, target=e_target)
             )

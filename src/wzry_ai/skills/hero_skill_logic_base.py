@@ -12,6 +12,7 @@
 子类只需实现 check_and_use_skills() 方法即可。
 """
 
+import os
 import time
 from abc import ABC, abstractmethod
 from queue import Empty
@@ -36,6 +37,31 @@ from wzry_ai.config import (
 logger = get_logger(__name__)
 
 LEVEL_UP_TAP_GAP_SECONDS = 0.08
+DEFAULT_AUTO_LEVEL_UP_KEYS = (KEY_LEVEL_1, KEY_LEVEL_ULT)
+AUTO_LEVEL_UP_KEY_NAMES = {
+    KEY_LEVEL_1: "升级技能1",
+    KEY_LEVEL_ULT: "升级大招",
+    KEY_LEVEL_2: "升级技能2",
+}
+AUTO_LEVEL_UP_KEY_ALIASES = {
+    "1": KEY_LEVEL_1,
+    "q": KEY_LEVEL_1,
+    "skill1": KEY_LEVEL_1,
+    "skill_1": KEY_LEVEL_1,
+    "level1": KEY_LEVEL_1,
+    "level_1": KEY_LEVEL_1,
+    "3": KEY_LEVEL_ULT,
+    "r": KEY_LEVEL_ULT,
+    "ult": KEY_LEVEL_ULT,
+    "ultimate": KEY_LEVEL_ULT,
+    "level_ult": KEY_LEVEL_ULT,
+    "2": KEY_LEVEL_2,
+    "e": KEY_LEVEL_2,
+    "skill2": KEY_LEVEL_2,
+    "skill_2": KEY_LEVEL_2,
+    "level2": KEY_LEVEL_2,
+    "level_2": KEY_LEVEL_2,
+}
 
 # ===== 向后兼容的按键别名 =====
 # 保留原有常量名称，映射到 config/keys.py 中的统一常量
@@ -87,6 +113,27 @@ class HeroSkillLogicBase(ABC):
     QUEUE_TIMEOUT = 0.1
     LOOP_SLEEP = 0.02
     SKILL_LOG_ENABLED = True
+
+    @staticmethod
+    def _parse_auto_level_up_keys():
+        raw_value = os.environ.get("WZRY_AUTO_LEVEL_KEYS", "").strip()
+        if not raw_value:
+            return DEFAULT_AUTO_LEVEL_UP_KEYS
+
+        keys = []
+        normalized_value = raw_value.replace(">", ",").replace(";", ",")
+        for raw_token in normalized_value.split(","):
+            token = raw_token.strip().lower()
+            if not token:
+                continue
+            key = AUTO_LEVEL_UP_KEY_ALIASES.get(token)
+            if key is None:
+                logger.warning(f"忽略未知自动加点项: {raw_token!r}")
+                continue
+            if key not in keys:
+                keys.append(key)
+
+        return tuple(keys) if keys else DEFAULT_AUTO_LEVEL_UP_KEYS
     
     def __init__(self):
         # 存储从队列接收到的血量信息字典，包含自身、队友、敌人的血量和位置
@@ -107,6 +154,7 @@ class HeroSkillLogicBase(ABC):
         self.last_ult_time = 0      # 大招(R)上次使用时间
         self.last_q_time = 0        # 一技能(Q)上次使用时间
         self.last_e_time = 0        # 二技能(E)上次使用时间
+        self.auto_level_up_keys = self._parse_auto_level_up_keys()
 
         # 状态防抖：记录上次状态变化的时间戳，用于防抖处理
         self.last_status_change_time = 0
@@ -223,11 +271,14 @@ class HeroSkillLogicBase(ABC):
             self.last_buy_time = current_time
 
         if current_time - self.last_levelup_time > 5:
-            self.tap_skill(KEY_LEVEL_ULT, "升级大招", silent=True)
-            time.sleep(LEVEL_UP_TAP_GAP_SECONDS)
-            self.tap_skill(KEY_LEVEL_1, "升级技能1", silent=True)
-            time.sleep(LEVEL_UP_TAP_GAP_SECONDS)
-            self.tap_skill(KEY_LEVEL_2, "升级技能2", silent=True)
+            for index, level_key in enumerate(self.auto_level_up_keys):
+                self.tap_skill(
+                    level_key,
+                    AUTO_LEVEL_UP_KEY_NAMES.get(level_key, "升级技能"),
+                    silent=True,
+                )
+                if index < len(self.auto_level_up_keys) - 1:
+                    time.sleep(LEVEL_UP_TAP_GAP_SECONDS)
             self.last_levelup_time = current_time
 
     def _convert_to_feet_pos(self, head_pos, use_generic_offset=False):

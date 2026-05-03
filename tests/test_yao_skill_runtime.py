@@ -34,7 +34,7 @@ def test_yao_maintenance_handles_minimap_only_health_info(monkeypatch):
 
     skill_logic.check_and_use_skills()
 
-    assert taps[:4] == ["4", "3", "1", "2"]
+    assert taps[:3] == ["4", "1", "3"]
 
 
 def test_yao_maintenance_adds_gap_between_level_taps(monkeypatch):
@@ -66,11 +66,49 @@ def test_yao_maintenance_adds_gap_between_level_taps(monkeypatch):
 
     skill_logic.check_and_use_skills()
 
+    assert events[:4] == [
+        ("tap", "4"),
+        ("tap", "1"),
+        ("sleep", 0.08),
+        ("tap", "3"),
+    ]
+
+
+def test_yao_maintenance_can_opt_in_to_level_second_skill(monkeypatch):
+    from wzry_ai.skills import hero_skill_logic_base
+    from wzry_ai.skills import yao_skill_logic_v2
+
+    events = []
+    monkeypatch.setenv("WZRY_AUTO_LEVEL_KEYS", "1,3,2")
+    monkeypatch.setattr(
+        hero_skill_logic_base,
+        "tap",
+        lambda key, times=1, interval=None: events.append(("tap", key)),
+    )
+    monkeypatch.setattr(
+        hero_skill_logic_base.time,
+        "sleep",
+        lambda value: events.append(("sleep", value)),
+    )
+    monkeypatch.setattr(yao_skill_logic_v2, "get_frame", lambda timeout=0.02: None)
+
+    skill_logic = yao_skill_logic_v2.YaoSkillLogic()
+    skill_logic.health_info = {
+        "self_health": None,
+        "self_pos": None,
+        "team_health": [],
+        "enemy_health": [],
+        "is_moving": False,
+        "skill_policy": "aggressive",
+    }
+
+    skill_logic.check_and_use_skills()
+
     assert events[:6] == [
         ("tap", "4"),
-        ("tap", "3"),
-        ("sleep", 0.08),
         ("tap", "1"),
+        ("sleep", 0.08),
+        ("tap", "3"),
         ("sleep", 0.08),
         ("tap", "2"),
     ]

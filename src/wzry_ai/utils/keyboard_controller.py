@@ -13,6 +13,7 @@ Windows API 键盘控制器
 import ctypes
 import os
 import subprocess
+import struct
 
 # 从ctypes导入wintypes和windll，用于Windows数据类型和DLL调用
 from ctypes import wintypes, windll
@@ -80,6 +81,10 @@ ANDROID_MOVE_MOTION_MODES = {
 }
 _android_touch_size: Optional[tuple[int, int]] = None
 
+SCRCPY_CONTROL_TYPE_INJECT_TOUCH_EVENT = 2
+SCRCPY_TOUCH_PACKET_FORMAT_V3 = ">BBQiiHHHII"
+SCRCPY_POINTER_ID_MASK = (1 << 64) - 1
+
 
 @dataclass(frozen=True)
 class AndroidTouchLayout:
@@ -110,8 +115,8 @@ def build_android_touch_layout(width: int, height: int) -> AndroidTouchLayout:
         "c": (int(width * 0.62), int(height * 0.895)),
         "t": (int(width * 0.645), int(height * 0.77)),
         "b": (int(width * 0.565), int(height * 0.895)),
-        "1": (int(width * 0.735), int(height * 0.775)),
-        "2": (int(width * 0.767), int(height * 0.618)),
+        "1": (int(width * 0.708), int(height * 0.765)),
+        "2": (int(width * 0.751), int(height * 0.595)),
         "3": (int(width * 0.858), int(height * 0.510)),
         "4": (int(width * 0.88), int(height * 0.1482)),
     }
@@ -389,6 +394,7 @@ class ScrcpyTouchController:
             / 1000.0
         )
         self._warned_missing_client = False
+        self._warned_touch_send_error = False
         logger.info(
             f"使用 scrcpy 触控控制器，触控坐标平面: "
             f"{resolved_size[0]}x{resolved_size[1]}"
@@ -435,20 +441,88 @@ class ScrcpyTouchController:
                 f"scrcpy 触控坐标平面已更新: {resolved_size[0]}x{resolved_size[1]}"
             )
 
-    def _get_control(self):
+    def _get_client(self):
         client = self.client_getter()
+        if client is None and not self._warned_missing_client:
+            logger.warning("scrcpy 触控控制器尚未拿到可用 control socket")
+            self._warned_missing_client = True
+        return client
+
+    def _get_control(self):
+        client = self._get_client()
         control = getattr(client, "control", None) if client is not None else None
         if control is None and not self._warned_missing_client:
             logger.warning("scrcpy 触控控制器尚未拿到可用 control socket")
             self._warned_missing_client = True
         return control
 
-    def _send_touch(self, action: int, x: int, y: int, touch_id: int) -> bool:
-        control = self._get_control()
-        if control is None:
+    def _mark_touch_send_failed(self, exc: BaseException) -> None:
+        self._touch_active = False
+        self._last_touch_pos = None
+        self._last_move_send_time = 0.0
+        if not self._warned_touch_send_error:
+            logger.warning(f"scrcpy 触控发送失败，control socket 可能已断开: {exc}")
+            self._warned_touch_send_error = True
+        else:
+            logger.debug(f"scrcpy 触控发送失败: {exc}")
+
+    def _pack_scrcpy_v3_touch(
+        self, action: int, x: int, y: int, touch_id: int
+    ) -> bytes:
+        width, height = self._layout_size
+        pointer_id = int(touch_id) & SCRCPY_POINTER_ID_MASK
+        pressure = 0 if int(action) == 1 else 0xFFFF
+        return struct.pack(
+            SCRCPY_TOUCH_PACKET_FORMAT_V3,
+            SCRCPY_CONTROL_TYPE_INJECT_TOUCH_EVENT,
+            int(action) & 0xFF,
+            pointer_id,
+            max(int(x), 0),
+            max(int(y), 0),
+            max(min(int(width), 0xFFFF), 0),
+            max(min(int(height), 0xFFFF), 0),
+            pressure,
+            0,
+            0,
+        )
+
+    def _send_scrcpy_v3_touch(
+        self, client, action: int, x: int, y: int, touch_id: int
+    ) -> bool:
+        control_socket = getattr(client, "control_socket", None)
+        if control_socket is None:
             return False
-        control.touch(int(x), int(y), action, touch_id=touch_id)
-        return True
+        packet = self._pack_scrcpy_v3_touch(action, x, y, touch_id)
+        lock = getattr(client, "control_socket_lock", None)
+        try:
+            if lock is None:
+                control_socket.send(packet)
+            else:
+                with lock:
+                    control_socket.send(packet)
+            self._warned_touch_send_error = False
+            return True
+        except (ConnectionError, OSError) as exc:
+            self._mark_touch_send_failed(exc)
+            return False
+
+    def _send_touch(self, action: int, x: int, y: int, touch_id: int) -> bool:
+        client = self._get_client()
+        control = getattr(client, "control", None) if client is not None else None
+        if control is None:
+            if not self._warned_missing_client:
+                logger.warning("scrcpy 触控控制器尚未拿到可用 control socket")
+                self._warned_missing_client = True
+            return False
+        if getattr(client, "_wzry_use_local_scrcpy_server", False):
+            return self._send_scrcpy_v3_touch(client, action, x, y, touch_id)
+        try:
+            control.touch(int(x), int(y), action, touch_id=touch_id)
+            self._warned_touch_send_error = False
+            return True
+        except (ConnectionError, OSError) as exc:
+            self._mark_touch_send_failed(exc)
+            return False
 
     def _release_motion_touch(self) -> None:
         if not self._touch_active:

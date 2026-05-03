@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import struct
+
 import wzry_ai.utils.keyboard_controller as keyboard_controller
 from wzry_ai.utils.keyboard_controller import (
     AndroidTouchController,
@@ -19,8 +21,8 @@ def test_build_android_touch_layout_uses_frame_dimensions():
     assert layout.skill_taps["q"] == (1812, 934)
     assert layout.skill_taps["e"] == (1944, 793)
     assert layout.skill_taps["r"] == (2136, 675)
-    assert layout.skill_taps["1"] == (1764, 837)
-    assert layout.skill_taps["2"] == (1840, 667)
+    assert layout.skill_taps["1"] == (1699, 826)
+    assert layout.skill_taps["2"] == (1802, 642)
     assert layout.skill_taps["3"] == (2059, 550)
     assert layout.skill_taps["4"] == (2112, 160)
 
@@ -302,6 +304,103 @@ def test_scrcpy_touch_controller_uses_client_resolution_by_default(monkeypatch):
 
     assert controller.layout.joystick_center == (288, 708)
     assert controller.layout.skill_taps["space"] == (1747, 691)
+
+
+def test_scrcpy_touch_controller_uses_scrcpy_3_touch_packet_for_local_server():
+    import scrcpy
+
+    packets = []
+
+    class FakeSocket:
+        def send(self, packet):
+            packets.append(packet)
+            return len(packet)
+
+    class FakeLock:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    class FakeControl:
+        def __init__(self, parent):
+            self.parent = parent
+
+        def touch(self, *_args, **_kwargs):
+            raise AssertionError("local scrcpy-server must not use legacy touch()")
+
+    class FakeClient:
+        def __init__(self):
+            self._wzry_use_local_scrcpy_server = True
+            self.resolution = (1920, 864)
+            self.control_socket = FakeSocket()
+            self.control_socket_lock = FakeLock()
+            self.control = FakeControl(self)
+
+    client = FakeClient()
+    controller = ScrcpyTouchController(
+        client_getter=lambda: client,
+        auto_start=False,
+    )
+
+    controller.tap("q", duration=0)
+
+    layout = build_android_touch_layout(1920, 864)
+    expected_x, expected_y = layout.skill_taps["q"]
+    assert len(packets) == 2
+    assert all(len(packet) == 32 for packet in packets)
+
+    assert struct.unpack(">BBQiiHHHII", packets[0]) == (
+        2,
+        scrcpy.ACTION_DOWN,
+        2,
+        expected_x,
+        expected_y,
+        1920,
+        864,
+        0xFFFF,
+        0,
+        0,
+    )
+    assert struct.unpack(">BBQiiHHHII", packets[1]) == (
+        2,
+        scrcpy.ACTION_UP,
+        2,
+        expected_x,
+        expected_y,
+        1920,
+        864,
+        0,
+        0,
+        0,
+    )
+
+
+def test_scrcpy_touch_controller_ignores_control_socket_disconnect():
+    class BrokenSocket:
+        def send(self, _packet):
+            raise ConnectionAbortedError("control socket closed")
+
+    class FakeControl:
+        def __init__(self, parent):
+            self.parent = parent
+
+    class FakeClient:
+        def __init__(self):
+            self._wzry_use_local_scrcpy_server = True
+            self.resolution = (1920, 864)
+            self.control_socket = BrokenSocket()
+            self.control_socket_lock = None
+            self.control = FakeControl(self)
+
+    client = FakeClient()
+    controller = ScrcpyTouchController(
+        client_getter=lambda: client,
+        auto_start=False,
+    )
+
+    controller.tap("q", duration=0)
 
 
 def test_scrcpy_touch_controller_taps_without_releasing_movement():

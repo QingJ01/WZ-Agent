@@ -70,6 +70,25 @@ def test_attached_with_enemy_uses_first_skill_before_second_skill():
     assert decision.selected_action.action == "cast_q"
 
 
+def test_follow_movement_does_not_cast_second_skill_only():
+    from wzry_ai.battle.yao_decision_brain import (
+        CooldownState,
+        TargetSummary,
+        YaoDecisionBrain,
+    )
+
+    state = _state(
+        battle_state="follow",
+        is_moving=True,
+        enemies=(TargetSummary(distance=240, health=80, in_e_range=True),),
+        cooldowns=CooldownState(q_ready=False, e_ready=True),
+    )
+
+    decision = YaoDecisionBrain().decide(state)
+
+    assert "cast_e" not in [action.action for action in decision.actions]
+
+
 def test_normal_state_prefers_attach_when_teammate_is_in_range():
     from wzry_ai.battle.yao_decision_brain import (
         CooldownState,
