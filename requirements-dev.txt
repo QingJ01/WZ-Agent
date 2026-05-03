@@ -1,0 +1,5 @@
+# Developer/test dependencies.
+-r requirements.txt
+
+pytest
+pyright

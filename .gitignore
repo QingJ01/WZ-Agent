@@ -1,0 +1,57 @@
+# Python cache and build output
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyd
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyright/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# IDE and OS files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Local runtime output
+logs/
+*.log
+*.tmp
+*.bak
+
+# Local device and operator config
+.env
+.env.*
+!/.env.example
+data/mumu_config.json
+
+# Generated or private models
+models/*
+!models/.gitkeep
+
+# Large third-party archives
+scrcpy.zip
+
+# Internal agent planning notes
+docs/superpowers/
+
+# Optional packaged artifacts
+*.zip
+*.7z
+*.rar

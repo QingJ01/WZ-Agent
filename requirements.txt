@@ -1,0 +1,32 @@
+# Runtime dependencies for WZ-Agent.
+# Install with:
+#   python -m pip install -r requirements.txt
+
+# Image processing and numeric computing
+opencv-python>=4.8.0
+numpy<2
+Pillow
+
+# Object detection and neural policy inference/training
+ultralytics
+torch
+
+# ADB and Android/MuMu integration
+adbutils==0.14.1
+pywin32
+pygetwindow
+psutil
+
+# OCR backends. PaddleOCR is preferred; EasyOCR is a fallback.
+paddleocr>=3.0.0
+easyocr
+
+# Template matching acceleration. The runtime falls back to OpenCV matching if
+# this package is unavailable, but installing it improves multi-template scans.
+MTM
+
+# Optional scrcpy video backend:
+# scrcpy-client 0.4.1 can be difficult to resolve automatically on Windows
+# because of PyAV constraints. If you need the scrcpy frame source, install:
+#   python -m pip install av==17.0.1
+#   python -m pip install scrcpy-client==0.4.1 --no-deps
