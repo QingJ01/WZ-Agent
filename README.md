@@ -129,14 +129,14 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-可选 scrcpy 帧源（更高帧率）：
+默认 scrcpy 帧源（推荐，高帧率）：
 
 ```powershell
 pip install av==17.0.1
 pip install scrcpy-client==0.4.1 --no-deps
 ```
 
-如果项目根目录存在 `scrcpy/` 本地工具包，运行时会优先使用其中的 `adb.exe`，并自动把 `scrcpy/` 加入 `PATH`。该目录用于本机运行，不会提交到仓库。
+如果项目根目录存在 `scrcpy/` 本地工具包，运行时会优先使用其中的 `adb.exe`，并自动把 `scrcpy/` 加入 `PATH`。GUI 默认使用 `scrcpy` 强制帧源；如需兼容模式，可在 GUI 中切换为 `auto` 或 `ADB 截图`。该目录用于本机运行，不会提交到仓库。
 
 ### 3. 放置模型
 

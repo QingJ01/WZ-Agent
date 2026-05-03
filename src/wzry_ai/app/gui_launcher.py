@@ -61,6 +61,8 @@ UI_TEXT = {
         "mode": "设备模式",
         "adb": "ADB 可执行文件",
         "serial": "ADB 设备序列号",
+        "frame_source": "视觉帧源模式",
+        "scrcpy_timeout": "scrcpy 首帧超时(秒)",
         "source": "采集输入源",
         "demo_dir": "示范数据目录",
         "decision_record_dir": "自训练决策记录目录",
@@ -129,6 +131,8 @@ UI_TEXT = {
         "training_start_failed": "训练启动失败",
         "model_file_missing": "模型权重文件不存在",
         "human_policy_confidence_invalid": "策略接管置信度阈值必须是 0 到 1 之间的小数。",
+        "frame_source_invalid": "视觉帧源模式必须是 scrcpy、auto 或 adb。",
+        "scrcpy_timeout_invalid": "scrcpy 首帧超时必须是 1 到 30 秒之间的数字。",
         "training_selection_applied": "已切换到策略模型训练",
         "training_dataset_empty": "当前目录没有可训练 JSONL，先采集数据再训练",
         "training_report": "训练报告",
@@ -170,6 +174,8 @@ class RuntimeLaunchConfig:
     adb_path: str
     adb_serial: str
     repo_root: Path
+    frame_source_mode: str = "scrcpy"
+    scrcpy_first_frame_timeout: str = "10.0"
     human_demo_enabled: bool = False
     human_demo_source: str = ""
     human_demo_dir: str = "logs/human_demos"
@@ -427,6 +433,20 @@ def _env_flag(env: Mapping[str, str], key: str, *, default: bool) -> bool:
     return raw_value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _normalize_frame_source_mode(value: str) -> str:
+    normalized = (value or "scrcpy").strip().lower()
+    aliases = {
+        "scrcpy_only": "scrcpy",
+        "force_scrcpy": "scrcpy",
+        "forced_scrcpy": "scrcpy",
+        "adb_screenshot": "adb",
+        "screencap": "adb",
+        "screenshot": "adb",
+    }
+    normalized = aliases.get(normalized, normalized)
+    return normalized if normalized in {"scrcpy", "auto", "adb"} else "scrcpy"
+
+
 def build_runtime_environment(
     config: RuntimeLaunchConfig,
     *,
@@ -436,6 +456,10 @@ def build_runtime_environment(
     env = _build_repo_environment(config.repo_root, base_env=base_env)
     resolved_mode = resolve_runtime_mode(config.mode, config.adb_serial)
     env["WZRY_DEVICE_MODE"] = resolved_mode
+    env["WZRY_FRAME_SOURCE"] = _normalize_frame_source_mode(config.frame_source_mode)
+    env["WZRY_SCRCPY_FIRST_FRAME_TIMEOUT"] = (
+        config.scrcpy_first_frame_timeout or "10.0"
+    )
     env["WZRY_HUMAN_DEMO_ENABLED"] = "1" if config.human_demo_enabled else "0"
     env["WZRY_HUMAN_DEMO_SOURCE"] = _resolve_human_demo_source(
         config.human_demo_source,
@@ -489,6 +513,18 @@ def build_training_environment(
 
 
 def validate_runtime_config(config: RuntimeLaunchConfig) -> str | None:
+    if _normalize_frame_source_mode(config.frame_source_mode) != (
+        config.frame_source_mode or "scrcpy"
+    ).strip().lower():
+        return UI_TEXT["logs"]["frame_source_invalid"]
+
+    try:
+        first_frame_timeout = float(config.scrcpy_first_frame_timeout or "10.0")
+    except ValueError:
+        return UI_TEXT["logs"]["scrcpy_timeout_invalid"]
+    if first_frame_timeout < 1.0 or first_frame_timeout > 30.0:
+        return UI_TEXT["logs"]["scrcpy_timeout_invalid"]
+
     for label_key, raw_path in (
         ("model1_weights", config.model1_weights),
         ("model2_weights", config.model2_weights),
@@ -538,6 +574,21 @@ def _build_repo_environment(
     base_env: Optional[Mapping[str, str]] = None,
 ) -> dict[str, str]:
     env = dict(base_env if base_env is not None else os.environ)
+    local_scrcpy_dir = Path(repo_root) / "scrcpy"
+    if local_scrcpy_dir.is_dir():
+        current_path = env.get("PATH", "")
+        current_parts = [
+            os.path.normcase(os.path.abspath(part))
+            for part in current_path.split(os.pathsep)
+            if part
+        ]
+        normalized_scrcpy_dir = os.path.normcase(os.path.abspath(local_scrcpy_dir))
+        if normalized_scrcpy_dir not in current_parts:
+            env["PATH"] = (
+                str(local_scrcpy_dir)
+                if not current_path
+                else str(local_scrcpy_dir) + os.pathsep + current_path
+            )
     src_path = str(Path(repo_root) / "src")
     existing_pythonpath = env.get("PYTHONPATH")
     env["PYTHONPATH"] = (
@@ -963,10 +1014,16 @@ class GuiLauncherApp:
     """Tkinter operator surface for device selection and runtime control."""
 
     MODES = ("auto", "android", "mumu")
+    FRAME_SOURCE_MODES = ("scrcpy", "auto", "adb")
     MODE_LABELS = {
         "auto": "自动模式",
         "android": "真机 ADB",
         "mumu": "MuMu 模拟器",
+    }
+    FRAME_SOURCE_LABELS = {
+        "scrcpy": "scrcpy 强制模式",
+        "auto": "scrcpy 优先，失败后 ADB 截图",
+        "adb": "ADB 截图兼容模式",
     }
     SOURCE_LABELS = {
         "auto": "自动选择输入源",
@@ -992,17 +1049,36 @@ class GuiLauncherApp:
         self.devices: list[AdbDeviceSummary] = []
 
         try:
-            from wzry_ai.config import ADB_DEVICE_SERIAL, ADB_PATH, DEVICE_MODE
+            from wzry_ai.config import (
+                ADB_DEVICE_SERIAL,
+                ADB_PATH,
+                DEVICE_MODE,
+                LOCAL_SCRCPY_ADB_PATH,
+            )
         except ImportError:
             ADB_PATH = "adb"
             ADB_DEVICE_SERIAL = ""
             DEVICE_MODE = "auto"
+            LOCAL_SCRCPY_ADB_PATH = ""
 
         defaults = build_gui_default_settings(self.repo_root)
         initial_mode = DEVICE_MODE if DEVICE_MODE in self.MODES else "auto"
+        adb_default = (
+            LOCAL_SCRCPY_ADB_PATH
+            if LOCAL_SCRCPY_ADB_PATH and Path(LOCAL_SCRCPY_ADB_PATH).is_file()
+            else ADB_PATH
+        )
         self.mode_var = tk.StringVar(value=self._mode_label(initial_mode))
-        self.adb_path_var = tk.StringVar(value=ADB_PATH)
+        self.adb_path_var = tk.StringVar(value=adb_default)
         self.serial_var = tk.StringVar(value=ADB_DEVICE_SERIAL)
+        self.frame_source_var = tk.StringVar(
+            value=self._frame_source_label(
+                _normalize_frame_source_mode(os.environ.get("WZRY_FRAME_SOURCE", "scrcpy"))
+            )
+        )
+        self.scrcpy_timeout_var = tk.StringVar(
+            value=os.environ.get("WZRY_SCRCPY_FIRST_FRAME_TIMEOUT", "10.0")
+        )
         self.human_demo_enabled_var = tk.BooleanVar(value=False)
         self.human_demo_source_var = tk.StringVar(value=self._source_label("auto"))
         self.demo_dir_var = tk.StringVar(value="logs/human_demos")
@@ -1138,8 +1214,29 @@ class GuiLauncherApp:
             row=2, column=1, sticky="ew", padx=8, pady=6
         )
 
+        ttk.Label(settings, text=UI_TEXT["labels"]["frame_source"]).grid(
+            row=3, column=0, sticky="w", padx=8, pady=6
+        )
+        self.frame_source_combo = ttk.Combobox(
+            settings,
+            textvariable=self.frame_source_var,
+            values=tuple(
+                self.FRAME_SOURCE_LABELS[mode] for mode in self.FRAME_SOURCE_MODES
+            ),
+            state="readonly",
+            width=28,
+        )
+        self.frame_source_combo.grid(row=3, column=1, sticky="w", padx=8, pady=6)
+
+        ttk.Label(settings, text=UI_TEXT["labels"]["scrcpy_timeout"]).grid(
+            row=4, column=0, sticky="w", padx=8, pady=6
+        )
+        ttk.Entry(settings, textvariable=self.scrcpy_timeout_var, width=10).grid(
+            row=4, column=1, sticky="w", padx=8, pady=6
+        )
+
         quick = ttk.Frame(settings)
-        quick.grid(row=3, column=0, columnspan=3, sticky="ew", padx=8, pady=6)
+        quick.grid(row=5, column=0, columnspan=3, sticky="ew", padx=8, pady=6)
         ttk.Button(quick, text=UI_TEXT["buttons"]["phone_mode"], command=self.use_phone_mode).pack(side="left")
         ttk.Button(quick, text=UI_TEXT["buttons"]["mumu_mode"], command=self.use_mumu_mode).pack(side="left", padx=8)
 
@@ -1147,10 +1244,10 @@ class GuiLauncherApp:
             settings,
             text=UI_TEXT["buttons"]["enable_ai_control"],
             variable=self.ai_control_enabled_var,
-        ).grid(row=4, column=0, columnspan=3, sticky="w", padx=8, pady=(2, 6))
+        ).grid(row=6, column=0, columnspan=3, sticky="w", padx=8, pady=(2, 6))
 
         actions = ttk.Frame(settings)
-        actions.grid(row=5, column=0, columnspan=3, sticky="ew", padx=8, pady=10)
+        actions.grid(row=7, column=0, columnspan=3, sticky="ew", padx=8, pady=10)
         ttk.Button(actions, text=UI_TEXT["buttons"]["start_runtime"], command=self.start_runtime).pack(side="left")
         ttk.Button(actions, text=UI_TEXT["buttons"]["stop_runtime"], command=self.stop_runtime).pack(side="left", padx=8)
 
@@ -1534,6 +1631,8 @@ class GuiLauncherApp:
             adb_path=self.adb_path_var.get().strip(),
             adb_serial=serial,
             repo_root=self.repo_root,
+            frame_source_mode=self._selected_frame_source_mode(),
+            scrcpy_first_frame_timeout=self.scrcpy_timeout_var.get().strip() or "10.0",
             human_demo_enabled=bool(self.human_demo_enabled_var.get()),
             human_demo_source=self._selected_human_demo_source(),
             human_demo_dir=self.demo_dir_var.get().strip() or "logs/human_demos",
@@ -1575,6 +1674,10 @@ class GuiLauncherApp:
         raw_mode = self.mode_var.get().strip()
         return self._mode_value(raw_mode) or "auto"
 
+    def _selected_frame_source_mode(self) -> str:
+        raw_mode = self.frame_source_var.get().strip()
+        return self._frame_source_value(raw_mode) or "scrcpy"
+
     def _mode_label(self, mode: str) -> str:
         return self.MODE_LABELS.get(mode, mode)
 
@@ -1583,6 +1686,18 @@ class GuiLauncherApp:
             return raw_mode
         label_to_value = {label: value for value, label in self.MODE_LABELS.items()}
         return label_to_value.get(raw_mode, "auto")
+
+    def _frame_source_label(self, mode: str) -> str:
+        return self.FRAME_SOURCE_LABELS.get(mode, self.FRAME_SOURCE_LABELS["scrcpy"])
+
+    def _frame_source_value(self, raw_mode: str) -> str:
+        normalized = raw_mode.strip()
+        if normalized in self.FRAME_SOURCE_LABELS:
+            return normalized
+        label_to_value = {
+            label: value for value, label in self.FRAME_SOURCE_LABELS.items()
+        }
+        return label_to_value.get(normalized, "scrcpy")
 
     def _source_label(self, source: str) -> str:
         return self.SOURCE_LABELS.get(source, source)

@@ -73,11 +73,11 @@ def _prepend_adb_to_path(logger: logging.Logger) -> None:
     local_scrcpy_dir = getattr(config_module, "LOCAL_SCRCPY_DIR", "")
 
     candidate_dirs: list[str] = []
+    if local_scrcpy_dir:
+        candidate_dirs.append(local_scrcpy_dir)
     adb_bin_dir = os.path.dirname(adb_path)
     if adb_bin_dir:
         candidate_dirs.append(adb_bin_dir)
-    if local_scrcpy_dir:
-        candidate_dirs.append(local_scrcpy_dir)
 
     current_path = os.environ.get("PATH", "")
     current_parts = [

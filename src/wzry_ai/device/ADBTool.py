@@ -59,6 +59,21 @@ def _get_adb_path() -> str:
 # 获取当前模块的日志记录器
 logger = get_logger(__name__)
 
+
+def _resolve_frame_source_mode() -> str:
+    raw_value = os.environ.get("WZRY_FRAME_SOURCE", "scrcpy").strip().lower()
+    aliases = {
+        "scrcpy_only": "scrcpy",
+        "force_scrcpy": "scrcpy",
+        "forced_scrcpy": "scrcpy",
+        "adb_screenshot": "adb",
+        "screencap": "adb",
+        "screenshot": "adb",
+    }
+    normalized = aliases.get(raw_value, raw_value)
+    return normalized if normalized in {"scrcpy", "auto", "adb"} else "scrcpy"
+
+
 try:
     # 尝试导入模拟器管理器
     from wzry_ai.device.emulator_manager import EmulatorPortFinder, MuMuConfigManager
@@ -714,6 +729,10 @@ class ADBTool:
         返回值：
             bytes: 图片数据（如果save_path为None），否则返回None
         """
+        frame_source_mode = _resolve_frame_source_mode()
+        if frame_source_mode == "adb":
+            use_scrcpy = False
+
         # 优先使用FrameManager（高性能方式）
         if use_scrcpy:
             try:
@@ -739,6 +758,10 @@ class ADBTool:
             except (AttributeError, RuntimeError, OSError) as e:
                 # FrameManager失败，回退到ADB方式
                 pass
+
+        if use_scrcpy and frame_source_mode == "scrcpy":
+            logger.debug("scrcpy 强制帧源未取得截图，跳过 ADB screencap 回退")
+            return None
 
         # 回退到ADB screencap命令
         if save_path:

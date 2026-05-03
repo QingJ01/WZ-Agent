@@ -30,9 +30,9 @@ pip install -r requirements-dev.txt
 
 ---
 
-## 第二步：安装 scrcpy（可选）
+## 第二步：安装 scrcpy 帧源（默认）
 
-scrcpy 提供更高帧率的视频帧源。如果不安装，运行时会自动回退到 ADB 截图模式（帧率较低但更稳定）。
+WZ-Agent 默认使用 `scrcpy` 强制帧源，不再静默回退到 ADB 截图。这样首帧失败时会直接暴露问题，避免看似在运行但实际帧率很低。
 
 如果你把官方 scrcpy Windows 工具包解压到项目根目录的 `scrcpy/` 目录，WZ-Agent 会优先使用其中的 `adb.exe`，并在运行时自动把 `scrcpy/` 加入 `PATH`。该目录只在本地使用，不提交到 GitHub。
 
@@ -41,7 +41,7 @@ pip install av==17.0.1
 pip install scrcpy-client==0.4.1 --no-deps
 ```
 
-> 如果遇到依赖冲突，可以跳过 scrcpy，先用 ADB 截图模式验证流程。
+> 如果遇到依赖冲突，可以在 GUI 的“视觉帧源模式”里临时切换到 `ADB 截图兼容模式`，或设置 `WZRY_FRAME_SOURCE=adb` 验证流程。
 
 ---
 
@@ -95,6 +95,8 @@ python Master_Auto.py
 $env:WZRY_DEVICE_MODE = "android"
 $env:WZRY_ADB_PATH = "D:\tools\adb.exe"
 $env:WZRY_ADB_DEVICE = "your-device-serial"
+$env:WZRY_FRAME_SOURCE = "scrcpy"
+$env:WZRY_SCRCPY_FIRST_FRAME_TIMEOUT = "10.0"
 $env:WZRY_AI_CONTROL_ENABLED = "0"
 python Master_Auto.py
 ```

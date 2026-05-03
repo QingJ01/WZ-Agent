@@ -20,6 +20,40 @@ from wzry_ai.utils.thread_supervisor import ThreadSupervisor
 
 logger = get_logger(__name__)
 
+_FRAME_SOURCE_ALIASES = {
+    "scrcpy_only": "scrcpy",
+    "force_scrcpy": "scrcpy",
+    "forced_scrcpy": "scrcpy",
+    "python_scrcpy": "scrcpy",
+    "adb_screenshot": "adb",
+    "screencap": "adb",
+    "screenshot": "adb",
+}
+_FRAME_SOURCE_MODES = {"scrcpy", "auto", "adb"}
+
+
+def _resolve_frame_source_mode(value: str | None = None) -> str:
+    raw_value = value if value is not None else os.environ.get("WZRY_FRAME_SOURCE", "scrcpy")
+    normalized = _FRAME_SOURCE_ALIASES.get(raw_value.strip().lower(), raw_value.strip().lower())
+    if normalized in _FRAME_SOURCE_MODES:
+        return normalized
+    logger.warning(f"未知 WZRY_FRAME_SOURCE={raw_value!r}，使用 scrcpy 强制帧源")
+    return "scrcpy"
+
+
+def _resolve_scrcpy_first_frame_timeout(value: str | None = None) -> float:
+    raw_value = (
+        value
+        if value is not None
+        else os.environ.get("WZRY_SCRCPY_FIRST_FRAME_TIMEOUT", "10.0")
+    )
+    try:
+        timeout = float(str(raw_value).strip())
+    except ValueError:
+        logger.warning(f"无效 WZRY_SCRCPY_FIRST_FRAME_TIMEOUT={raw_value!r}，使用 10 秒")
+        return 10.0
+    return max(1.0, min(30.0, timeout))
+
 
 @dataclass
 class AndroidDeviceConfig:
@@ -286,15 +320,23 @@ class GameServices:
 
     def _init_scrcpy(self):
         """初始化scrcpy连接"""
-        import scrcpy
-        from wzry_ai.device.ScrcpyTool import ScrcpyTool
-
-        logger.info("初始化 ScrcpyTool 连接...")
+        frame_source_mode = _resolve_frame_source_mode()
+        logger.info(f"画面帧源模式: {frame_source_mode}")
 
         def on_frame(frame):
             if frame is not None:
                 self.frame_container[0] = frame
                 self.frame_update_counter[0] += 1
+
+        if frame_source_mode == "adb":
+            logger.warning("画面帧源模式为 ADB 截图，未启动 scrcpy")
+            self._start_adb_screenshot_fallback(on_frame)
+            return
+
+        import scrcpy
+        from wzry_ai.device.ScrcpyTool import ScrcpyTool
+
+        logger.info("初始化 ScrcpyTool 连接...")
 
         device_serial = self.adb_device
         if device_serial is None:
@@ -305,17 +347,21 @@ class GameServices:
             self.scrcpy_tool.client.max_fps = 30
             self.scrcpy_tool.client.start(threaded=True)
         except Exception as exc:
-            if self._should_use_android_device():
+            if frame_source_mode == "auto" and self._should_use_android_device():
                 logger.warning(f"scrcpy 启动失败，切换到 ADB 截图帧源: {exc}")
                 self._start_adb_screenshot_fallback(on_frame)
                 return
-            raise
+            raise RuntimeError(
+                "scrcpy 帧源启动失败，已禁止回退 ADB 截图；请检查 USB 调试授权、"
+                "scrcpy-client/av 依赖和本地 adb 连接"
+            ) from exc
 
-        if self._wait_for_first_scrcpy_frame(timeout=2.0):
+        first_frame_timeout = _resolve_scrcpy_first_frame_timeout()
+        if self._wait_for_first_scrcpy_frame(timeout=first_frame_timeout):
             logger.info("ScrcpyTool 连接成功")
             return
 
-        if self._should_use_android_device():
+        if frame_source_mode == "auto" and self._should_use_android_device():
             logger.warning("scrcpy 未收到有效首帧，切换到 ADB 截图帧源")
             try:
                 self.scrcpy_tool.client.stop()
@@ -323,6 +369,16 @@ class GameServices:
                 logger.debug(f"停止无帧 scrcpy 客户端失败: {exc}")
             self._start_adb_screenshot_fallback(on_frame)
             return
+
+        if frame_source_mode == "scrcpy":
+            try:
+                self.scrcpy_tool.client.stop()
+            except Exception as exc:
+                logger.debug(f"停止无帧 scrcpy 客户端失败: {exc}")
+            raise RuntimeError(
+                f"scrcpy 在 {first_frame_timeout:.1f} 秒内未收到有效首帧，"
+                "已禁止回退 ADB 截图"
+            )
 
         logger.warning("scrcpy 已连接但暂未收到有效首帧")
 

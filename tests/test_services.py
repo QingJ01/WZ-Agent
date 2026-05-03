@@ -352,6 +352,7 @@ class TestGameServicesState:
 
         fallback_calls = []
         services.adb_device = "DEVICE1234567890"
+        monkeypatch.setenv("WZRY_FRAME_SOURCE", "auto")
         monkeypatch.setattr(scrcpy_tool_module, "ScrcpyTool", FakeScrcpyTool)
         monkeypatch.setattr(services, "_should_use_android_device", lambda: True)
         monkeypatch.setattr(
@@ -367,6 +368,74 @@ class TestGameServicesState:
 
         assert fake_client.started is True
         assert fake_client.stopped is True
+        assert len(fallback_calls) == 1
+
+    def test_init_scrcpy_forced_scrcpy_raises_without_first_frame(
+        self, services, monkeypatch
+    ):
+        """Forced scrcpy mode must not fall back to ADB screenshots."""
+        import wzry_ai.device.ScrcpyTool as scrcpy_tool_module
+
+        class FakeClient:
+            def __init__(self):
+                self.listeners = []
+                self.started = False
+                self.stopped = False
+                self.max_fps = None
+
+            def add_listener(self, event, callback):
+                self.listeners.append((event, callback))
+
+            def start(self, threaded=False):
+                self.started = threaded
+
+            def stop(self):
+                self.stopped = True
+
+        fake_client = FakeClient()
+
+        class FakeScrcpyTool:
+            def __init__(self, device_serial=None):
+                self.device_serial = device_serial
+                self.client = fake_client
+
+        fallback_calls = []
+        services.adb_device = "DEVICE1234567890"
+        monkeypatch.setenv("WZRY_FRAME_SOURCE", "scrcpy")
+        monkeypatch.setattr(scrcpy_tool_module, "ScrcpyTool", FakeScrcpyTool)
+        monkeypatch.setattr(services, "_should_use_android_device", lambda: True)
+        monkeypatch.setattr(
+            services, "_wait_for_first_scrcpy_frame", lambda timeout=10.0: False
+        )
+        monkeypatch.setattr(
+            services,
+            "_start_adb_screenshot_fallback",
+            lambda on_frame: fallback_calls.append(on_frame),
+        )
+
+        with pytest.raises(RuntimeError, match="scrcpy"):
+            services._init_scrcpy()
+
+        assert fake_client.started is True
+        assert fake_client.stopped is True
+        assert fallback_calls == []
+
+    def test_init_scrcpy_uses_adb_frame_source_when_requested(
+        self, services, monkeypatch
+    ):
+        """Explicit ADB frame source remains available as a manual compatibility mode."""
+        fallback_calls = []
+        services.adb_device = "DEVICE1234567890"
+        monkeypatch.setenv("WZRY_FRAME_SOURCE", "adb")
+        monkeypatch.setattr(
+            services,
+            "_start_adb_screenshot_fallback",
+            lambda on_frame: fallback_calls.append(on_frame),
+        )
+
+        services._init_scrcpy()
+
+        assert services.scrcpy_tool is None
         assert len(fallback_calls) == 1
 
     def test_init_scrcpy_falls_back_to_adb_screenshot_when_scrcpy_start_fails(
@@ -392,6 +461,7 @@ class TestGameServicesState:
 
         fallback_calls = []
         services.adb_device = "DEVICE1234567890"
+        monkeypatch.setenv("WZRY_FRAME_SOURCE", "auto")
         monkeypatch.setattr(scrcpy_tool_module, "ScrcpyTool", FakeScrcpyTool)
         monkeypatch.setattr(services, "_should_use_android_device", lambda: True)
         monkeypatch.setattr(

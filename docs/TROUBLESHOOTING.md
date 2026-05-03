@@ -41,17 +41,23 @@ python GUI.py
 
 ## scrcpy 黑屏或首帧失败
 
-运行时会自动回退到 ADB 截图帧源，日志中会出现：
+默认 `WZRY_FRAME_SOURCE=scrcpy`，首帧失败时不会再静默回退到 ADB 截图，日志中会出现：
 
 ```
-scrcpy 未收到有效首帧，切换到 ADB 截图帧源
+scrcpy 在 10.0 秒内未收到有效首帧，已禁止回退 ADB 截图
 ```
 
-这是正常降级行为，只是帧率较低。如需 scrcpy：
+优先检查：
 
 ```powershell
 pip install av==17.0.1
 pip install scrcpy-client==0.4.1 --no-deps
+```
+
+同时确认手机已授权 USB 调试、屏幕已解锁、项目根目录存在 `scrcpy/adb.exe`。如果只是临时验证流程，可在 GUI 中把“视觉帧源模式”切换为 `scrcpy 优先，失败后 ADB 截图`，或设置：
+
+```powershell
+$env:WZRY_FRAME_SOURCE = "auto"
 ```
 
 ---

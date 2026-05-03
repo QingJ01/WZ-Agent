@@ -213,6 +213,24 @@ def test_build_runtime_environment_disables_human_demo_by_default(tmp_path):
     assert env["WZRY_AI_CONTROL_ENABLED"] == "0"
     assert env["WZRY_DECISION_RECORDING"] == "0"
     assert env["WZRY_DECISION_RECORD_DIR"] == str(tmp_path / "logs" / "decision_records")
+    assert env["WZRY_FRAME_SOURCE"] == "scrcpy"
+    assert env["WZRY_SCRCPY_FIRST_FRAME_TIMEOUT"] == "10.0"
+
+
+def test_build_runtime_environment_allows_auto_frame_source(tmp_path):
+    config = RuntimeLaunchConfig(
+        mode="android",
+        adb_path="adb",
+        adb_serial="DEVICE1234567890",
+        repo_root=tmp_path,
+        frame_source_mode="auto",
+        scrcpy_first_frame_timeout="7.5",
+    )
+
+    env = build_runtime_environment(config, base_env={"PATH": "base"})
+
+    assert env["WZRY_FRAME_SOURCE"] == "auto"
+    assert env["WZRY_SCRCPY_FIRST_FRAME_TIMEOUT"] == "7.5"
 
 
 def test_validate_runtime_config_rejects_missing_detection_model(tmp_path):
@@ -277,6 +295,21 @@ def test_validate_runtime_config_rejects_invalid_human_policy_confidence(tmp_pat
 
     assert error is not None
     assert "0" in error and "1" in error
+
+
+def test_validate_runtime_config_rejects_invalid_scrcpy_timeout(tmp_path):
+    config = RuntimeLaunchConfig(
+        mode="android",
+        adb_path="adb",
+        adb_serial="phone-1",
+        repo_root=tmp_path,
+        scrcpy_first_frame_timeout="bad",
+    )
+
+    error = validate_runtime_config(config)
+
+    assert error is not None
+    assert "scrcpy" in error
 
 
 def test_validate_runtime_config_rejects_policy_with_bad_coordinate_report(tmp_path):
