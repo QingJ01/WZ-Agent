@@ -259,6 +259,6 @@ python -m pytest -q                     # 运行测试
 
 本项目采用 [GNU General Public License v3.0](LICENSE) 发布。
 
-## 相关链接
+## 鸣谢
 
-- https://github.com/LING71671
+- 感谢 [LING71671](https://github.com/LING71671) 对本项目的支持。
