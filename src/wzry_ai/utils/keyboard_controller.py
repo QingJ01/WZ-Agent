@@ -132,7 +132,12 @@ def _is_android_input_mode() -> bool:
 
 def _is_scrcpy_input_mode() -> bool:
     input_mode = os.environ.get("WZRY_INPUT_MODE", "").strip().lower()
-    return input_mode in {"scrcpy", "scrcpy_touch"}
+    if input_mode in {"scrcpy", "scrcpy_touch"}:
+        return True
+    if input_mode in {"adb", "android", "touch"}:
+        return False
+    frame_source = os.environ.get("WZRY_FRAME_SOURCE", "").strip().lower()
+    return frame_source == "scrcpy"
 
 
 def _parse_size(value: str) -> Optional[tuple[int, int]]:

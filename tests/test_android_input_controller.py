@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import wzry_ai.utils.keyboard_controller as keyboard_controller
 from wzry_ai.utils.keyboard_controller import (
     AndroidTouchController,
     ScrcpyTouchController,
     build_android_touch_layout,
+    _is_scrcpy_input_mode,
 )
 
 
@@ -21,6 +23,40 @@ def test_build_android_touch_layout_uses_frame_dimensions():
     assert layout.skill_taps["2"] == (1840, 667)
     assert layout.skill_taps["3"] == (2059, 550)
     assert layout.skill_taps["4"] == (2112, 160)
+
+
+def test_scrcpy_frame_source_defaults_to_scrcpy_input(monkeypatch):
+    monkeypatch.delenv("WZRY_INPUT_MODE", raising=False)
+    monkeypatch.setenv("WZRY_FRAME_SOURCE", "scrcpy")
+
+    assert _is_scrcpy_input_mode() is True
+
+
+def test_explicit_adb_input_overrides_scrcpy_frame_source(monkeypatch):
+    monkeypatch.setenv("WZRY_INPUT_MODE", "adb")
+    monkeypatch.setenv("WZRY_FRAME_SOURCE", "scrcpy")
+
+    assert _is_scrcpy_input_mode() is False
+
+
+def test_get_keyboard_uses_scrcpy_controller_for_scrcpy_frame_source(monkeypatch):
+    class FakeScrcpyController:
+        pass
+
+    class FakeAndroidController:
+        pass
+
+    monkeypatch.delenv("WZRY_INPUT_MODE", raising=False)
+    monkeypatch.setenv("WZRY_FRAME_SOURCE", "scrcpy")
+    monkeypatch.setenv("WZRY_DEVICE_MODE", "android")
+    monkeypatch.setattr(keyboard_controller, "_keyboard", None)
+    monkeypatch.setattr(keyboard_controller, "ScrcpyTouchController", FakeScrcpyController)
+    monkeypatch.setattr(keyboard_controller, "AndroidTouchController", FakeAndroidController)
+
+    controller = keyboard_controller._get_keyboard()
+
+    assert isinstance(controller, FakeScrcpyController)
+    monkeypatch.setattr(keyboard_controller, "_keyboard", None)
 
 
 def test_android_touch_controller_taps_mapped_key():
