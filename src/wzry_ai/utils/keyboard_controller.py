@@ -356,16 +356,43 @@ class ScrcpyTouchController:
         from wzry_ai.utils.scrcpy_control import get_active_scrcpy_client
 
         self.client_getter = client_getter or get_active_scrcpy_client
+        self._explicit_screen_size = screen_size is not None
+        self._scrcpy_touch_size = _parse_size(
+            os.environ.get("WZRY_SCRCPY_TOUCH_SIZE", "")
+        )
         self._pressed: set[str] = set()
         self._lock = threading.Lock()
         self._command_lock = threading.RLock()
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
-        self.layout = build_android_touch_layout(*self._resolve_screen_size(screen_size))
+        resolved_size = self._resolve_screen_size(screen_size)
+        self._layout_size = resolved_size
+        self.layout = build_android_touch_layout(*resolved_size)
         self._touch_active = False
         self._last_touch_pos: Optional[tuple[int, int]] = None
+        self._last_move_send_time = 0.0
+        self._move_touch_id = _parse_int_env(
+            "WZRY_SCRCPY_MOVE_TOUCH_ID", default=1, min_value=-1, max_value=32
+        )
+        self._tap_touch_id = _parse_int_env(
+            "WZRY_SCRCPY_TAP_TOUCH_ID", default=2, min_value=-1, max_value=32
+        )
+        if self._tap_touch_id == self._move_touch_id:
+            self._tap_touch_id = self._move_touch_id + 1
+        self._move_heartbeat_seconds = (
+            _parse_int_env(
+                "WZRY_SCRCPY_MOVE_HEARTBEAT_MS",
+                default=80,
+                min_value=0,
+                max_value=1000,
+            )
+            / 1000.0
+        )
         self._warned_missing_client = False
-        logger.info("使用 scrcpy 触控控制器")
+        logger.info(
+            f"使用 scrcpy 触控控制器，触控坐标平面: "
+            f"{resolved_size[0]}x{resolved_size[1]}"
+        )
         if auto_start:
             self._thread = threading.Thread(
                 target=self._movement_loop,
@@ -379,12 +406,34 @@ class ScrcpyTouchController:
     ) -> tuple[int, int]:
         if screen_size:
             return screen_size
+        if self._scrcpy_touch_size:
+            return self._scrcpy_touch_size
+        client = self.client_getter()
+        resolution = getattr(client, "resolution", None) if client is not None else None
+        if (
+            isinstance(resolution, tuple)
+            and len(resolution) == 2
+            and int(resolution[0]) > 0
+            and int(resolution[1]) > 0
+        ):
+            return (int(resolution[0]), int(resolution[1]))
         env_size = _parse_size(os.environ.get("WZRY_TOUCH_SIZE", ""))
         if env_size:
             return env_size
         if _android_touch_size:
             return _android_touch_size
         return (2400, 1080)
+
+    def _refresh_layout_from_client(self) -> None:
+        if self._explicit_screen_size:
+            return
+        resolved_size = self._resolve_screen_size(None)
+        if resolved_size != self._layout_size:
+            self._layout_size = resolved_size
+            self.layout = build_android_touch_layout(*resolved_size)
+            logger.info(
+                f"scrcpy 触控坐标平面已更新: {resolved_size[0]}x{resolved_size[1]}"
+            )
 
     def _get_control(self):
         client = self.client_getter()
@@ -394,11 +443,11 @@ class ScrcpyTouchController:
             self._warned_missing_client = True
         return control
 
-    def _send_touch(self, action: int, x: int, y: int) -> bool:
+    def _send_touch(self, action: int, x: int, y: int, touch_id: int) -> bool:
         control = self._get_control()
         if control is None:
             return False
-        control.touch(int(x), int(y), action)
+        control.touch(int(x), int(y), action, touch_id=touch_id)
         return True
 
     def _release_motion_touch(self) -> None:
@@ -407,9 +456,10 @@ class ScrcpyTouchController:
         import scrcpy
 
         x, y = self._last_touch_pos or self.layout.joystick_center
-        self._send_touch(scrcpy.ACTION_UP, x, y)
+        self._send_touch(scrcpy.ACTION_UP, x, y, self._move_touch_id)
         self._touch_active = False
         self._last_touch_pos = None
+        self._last_move_send_time = 0.0
 
     def press(self, key):
         normalized = str(key).lower()
@@ -426,8 +476,8 @@ class ScrcpyTouchController:
                 self._pressed.discard(normalized)
 
     def tap(self, key, duration=None):
-        _ = duration
         normalized = str(key).lower()
+        self._refresh_layout_from_client()
         pos = self.layout.skill_taps.get(normalized)
         if pos is None:
             logger.debug(f"ScrcpyTouchController 忽略未映射按键: {key}")
@@ -437,19 +487,17 @@ class ScrcpyTouchController:
 
         x, y = pos
         with self._command_lock:
-            was_holding = self._touch_active
-            if was_holding:
-                self._release_motion_touch()
-            if self._send_touch(scrcpy.ACTION_DOWN, x, y):
-                self._send_touch(scrcpy.ACTION_UP, x, y)
-            if was_holding:
-                self.pump_once()
+            if self._send_touch(scrcpy.ACTION_DOWN, x, y, self._tap_touch_id):
+                if duration:
+                    time.sleep(float(duration))
+                self._send_touch(scrcpy.ACTION_UP, x, y, self._tap_touch_id)
 
     def pump_once(self, duration_ms: Optional[int] = None) -> bool:
         _ = duration_ms
         import scrcpy
 
         with self._command_lock:
+            self._refresh_layout_from_client()
             with self._lock:
                 pressed = set(self._pressed)
             dx = (1 if "d" in pressed else 0) - (1 if "a" in pressed else 0)
@@ -465,14 +513,24 @@ class ScrcpyTouchController:
             end_y = int(cy + radius * dy / magnitude)
 
             if not self._touch_active:
-                if not self._send_touch(scrcpy.ACTION_DOWN, cx, cy):
+                if not self._send_touch(
+                    scrcpy.ACTION_DOWN, cx, cy, self._move_touch_id
+                ):
                     return False
                 self._touch_active = True
                 self._last_touch_pos = (cx, cy)
-            if self._last_touch_pos != (end_x, end_y):
-                if not self._send_touch(scrcpy.ACTION_MOVE, end_x, end_y):
+            now = time.monotonic()
+            heartbeat_due = (
+                self._move_heartbeat_seconds <= 0
+                or now - self._last_move_send_time >= self._move_heartbeat_seconds
+            )
+            if self._last_touch_pos != (end_x, end_y) or heartbeat_due:
+                if not self._send_touch(
+                    scrcpy.ACTION_MOVE, end_x, end_y, self._move_touch_id
+                ):
                     return False
                 self._last_touch_pos = (end_x, end_y)
+                self._last_move_send_time = now
             return True
 
     def _movement_loop(self) -> None:

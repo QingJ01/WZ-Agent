@@ -218,8 +218,8 @@ def test_scrcpy_touch_controller_taps_mapped_key():
     controller.tap("space", duration=0)
 
     assert events == [
-        (2184, 864, scrcpy.ACTION_DOWN, -1),
-        (2184, 864, scrcpy.ACTION_UP, -1),
+        (2184, 864, scrcpy.ACTION_DOWN, 2),
+        (2184, 864, scrcpy.ACTION_UP, 2),
     ]
 
 
@@ -248,6 +248,84 @@ def test_scrcpy_touch_controller_keeps_motion_touch_held():
     assert first_sent is True
     assert still_holding is True
     assert events == [
-        (360, 885, scrcpy.ACTION_DOWN, -1),
-        (468, 885, scrcpy.ACTION_MOVE, -1),
+        (360, 885, scrcpy.ACTION_DOWN, 1),
+        (468, 885, scrcpy.ACTION_MOVE, 1),
+    ]
+
+
+def test_scrcpy_touch_controller_uses_client_resolution_by_default(monkeypatch):
+    monkeypatch.delenv("WZRY_TOUCH_SIZE", raising=False)
+    monkeypatch.delenv("WZRY_SCRCPY_TOUCH_SIZE", raising=False)
+
+    class FakeClient:
+        resolution = (1920, 864)
+
+    controller = ScrcpyTouchController(
+        client_getter=lambda: FakeClient(),
+        auto_start=False,
+    )
+
+    assert controller.layout.joystick_center == (288, 708)
+    assert controller.layout.skill_taps["space"] == (1747, 691)
+
+
+def test_scrcpy_touch_controller_taps_without_releasing_movement():
+    import scrcpy
+
+    events = []
+
+    class FakeControl:
+        def touch(self, x, y, action, touch_id=-1):
+            events.append((x, y, action, touch_id))
+
+    class FakeClient:
+        control = FakeControl()
+        resolution = (2400, 1080)
+
+    controller = ScrcpyTouchController(
+        client_getter=lambda: FakeClient(),
+        screen_size=(2400, 1080),
+        auto_start=False,
+    )
+
+    controller.press("d")
+    controller.pump_once()
+    controller.tap("q", duration=0)
+
+    assert events == [
+        (360, 885, scrcpy.ACTION_DOWN, 1),
+        (468, 885, scrcpy.ACTION_MOVE, 1),
+        (1812, 934, scrcpy.ACTION_DOWN, 2),
+        (1812, 934, scrcpy.ACTION_UP, 2),
+    ]
+
+
+def test_scrcpy_touch_controller_can_send_move_heartbeat(monkeypatch):
+    import scrcpy
+
+    monkeypatch.setenv("WZRY_SCRCPY_MOVE_HEARTBEAT_MS", "0")
+    events = []
+
+    class FakeControl:
+        def touch(self, x, y, action, touch_id=-1):
+            events.append((x, y, action, touch_id))
+
+    class FakeClient:
+        control = FakeControl()
+        resolution = (2400, 1080)
+
+    controller = ScrcpyTouchController(
+        client_getter=lambda: FakeClient(),
+        screen_size=(2400, 1080),
+        auto_start=False,
+    )
+
+    controller.press("d")
+    controller.pump_once()
+    controller.pump_once()
+
+    assert events == [
+        (360, 885, scrcpy.ACTION_DOWN, 1),
+        (468, 885, scrcpy.ACTION_MOVE, 1),
+        (468, 885, scrcpy.ACTION_MOVE, 1),
     ]
