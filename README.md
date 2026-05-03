@@ -258,3 +258,7 @@ python -m pytest -q                     # 运行测试
 ## 许可证
 
 本项目采用 [GNU General Public License v3.0](LICENSE) 发布。
+
+## 相关链接
+
+- https://github.com/LING71671
