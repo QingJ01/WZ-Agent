@@ -136,6 +136,8 @@ pip install av==17.0.1
 pip install scrcpy-client==0.4.1 --no-deps
 ```
 
+如果项目根目录存在 `scrcpy/` 本地工具包，运行时会优先使用其中的 `adb.exe`，并自动把 `scrcpy/` 加入 `PATH`。该目录用于本机运行，不会提交到仓库。
+
 ### 3. 放置模型
 
 将三个 YOLO 权重放入 `models/` 目录：

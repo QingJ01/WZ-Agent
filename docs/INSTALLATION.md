@@ -34,6 +34,8 @@ pip install -r requirements-dev.txt
 
 scrcpy 提供更高帧率的视频帧源。如果不安装，运行时会自动回退到 ADB 截图模式（帧率较低但更稳定）。
 
+如果你把官方 scrcpy Windows 工具包解压到项目根目录的 `scrcpy/` 目录，WZ-Agent 会优先使用其中的 `adb.exe`，并在运行时自动把 `scrcpy/` 加入 `PATH`。该目录只在本地使用，不提交到 GitHub。
+
 ```powershell
 pip install av==17.0.1
 pip install scrcpy-client==0.4.1 --no-deps

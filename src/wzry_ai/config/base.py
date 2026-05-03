@@ -54,6 +54,19 @@ SCRCPY_MAX_SIZE = 1920  # 最大画面尺寸（像素）
 SCRCPY_BITRATE = 8000000  # 视频比特率（bps），影响画质和流畅度
 SCRCPY_MAX_FPS = 60  # 最大帧率（帧/秒）
 
+
+def _get_local_scrcpy_dir() -> str:
+    """返回仓库内本地 scrcpy 工具目录。"""
+    try:
+        return os.fspath(get_runtime_path_resolver().repo_root / "scrcpy")
+    except RuntimeError:
+        return os.path.abspath("scrcpy")
+
+
+LOCAL_SCRCPY_DIR = _get_local_scrcpy_dir()
+LOCAL_SCRCPY_ADB_PATH = os.path.join(LOCAL_SCRCPY_DIR, "adb.exe")
+LOCAL_SCRCPY_EXE_PATH = os.path.join(LOCAL_SCRCPY_DIR, "scrcpy.exe")
+
 # ========== ADB 设备配置 ==========
 # ADB（Android Debug Bridge）用于与安卓模拟器通信
 ADB_DEVICE_IP = "127.0.0.1"  # ADB设备IP地址（本地）
@@ -65,22 +78,25 @@ DEVICE_MODE = os.environ.get("WZRY_DEVICE_MODE", "auto").strip().lower()
 
 
 # ADB工具路径：按优先级自动查找，支持MuMu模拟器
-# 查找顺序：常见模拟器安装路径 → 系统PATH → 回退到 "adb"
+# 查找顺序：本地 scrcpy 工具目录 → 常见模拟器安装路径 → 系统PATH → 回退到 "adb"
 def _find_adb_path():
     """
     自动查找ADB可执行文件路径
 
     查找顺序：
         1. WZRY_ADB_PATH 环境变量
-        2. 常见MuMu模拟器安装路径
-        3. 系统PATH环境变量中的adb
-        4. 都找不到则返回 "adb"（假设已加入PATH）
+        2. 项目根目录 scrcpy/adb.exe
+        3. 常见MuMu模拟器安装路径
+        4. 系统PATH环境变量中的adb
+        5. 都找不到则返回 "adb"（假设已加入PATH）
     """
     env_adb_path = os.environ.get("WZRY_ADB_PATH")
     if env_adb_path:
         return os.path.expanduser(os.path.expandvars(env_adb_path))
 
     _COMMON_ADB_PATHS = [
+        # 项目内本地scrcpy工具包
+        LOCAL_SCRCPY_ADB_PATH,
         # MuMu模拟器
         r"D:\MuMuPlayer\nx_main\adb.exe",
         r"C:\Program Files\MuMu\emulator\nemu\EmulatorShell\adb.exe",

@@ -1,7 +1,9 @@
 """测试配置模块"""
 
-import pytest
 import importlib
+import os
+
+import pytest
 from wzry_ai.config import (
     GRID_SIZE,
     CELL_SIZE,
@@ -109,6 +111,14 @@ class TestConfigValues:
         monkeypatch.setenv("WZRY_ADB_PATH", str(adb_path))
 
         assert base._find_adb_path() == str(adb_path)
+
+    def test_find_adb_path_prefers_local_scrcpy_bundle(self, monkeypatch):
+        """测试默认优先使用仓库内scrcpy工具包的adb。"""
+        monkeypatch.delenv("WZRY_ADB_PATH", raising=False)
+        if not os.path.isfile(base.LOCAL_SCRCPY_ADB_PATH):
+            pytest.skip("local scrcpy adb bundle not present")
+
+        assert base._find_adb_path() == base.LOCAL_SCRCPY_ADB_PATH
 
     def test_adb_device_serial_prefers_environment_override(self, monkeypatch):
         """测试ADB设备序列号优先使用环境变量覆盖"""

@@ -46,6 +46,7 @@ models/*
 !models/.gitkeep
 
 # Large third-party archives
+scrcpy/
 scrcpy.zip
 
 # Internal agent planning notes

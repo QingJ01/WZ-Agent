@@ -70,13 +70,39 @@ def _install_stderr_filter() -> None:
 def _prepend_adb_to_path(logger: logging.Logger) -> None:
     config_module = import_module("wzry_ai.config")
     adb_path = getattr(config_module, "ADB_PATH")
+    local_scrcpy_dir = getattr(config_module, "LOCAL_SCRCPY_DIR", "")
 
+    candidate_dirs: list[str] = []
     adb_bin_dir = os.path.dirname(adb_path)
-    current_path = os.environ.get("PATH", "")
+    if adb_bin_dir:
+        candidate_dirs.append(adb_bin_dir)
+    if local_scrcpy_dir:
+        candidate_dirs.append(local_scrcpy_dir)
 
-    if os.path.exists(adb_bin_dir) and adb_bin_dir not in current_path:
-        os.environ["PATH"] = adb_bin_dir + os.pathsep + current_path
-        logger.info(f"已添加 ADB 路径: {adb_bin_dir}")
+    current_path = os.environ.get("PATH", "")
+    current_parts = [
+        os.path.normcase(os.path.abspath(part))
+        for part in current_path.split(os.pathsep)
+        if part
+    ]
+
+    added: list[str] = []
+    for directory in candidate_dirs:
+        if not os.path.isdir(directory):
+            continue
+        normalized = os.path.normcase(os.path.abspath(directory))
+        if normalized in current_parts or normalized in [
+            os.path.normcase(os.path.abspath(path)) for path in added
+        ]:
+            continue
+        added.append(directory)
+
+    if added:
+        path_parts = [*added]
+        if current_path:
+            path_parts.append(current_path)
+        os.environ["PATH"] = os.pathsep.join(path_parts)
+        logger.info(f"已添加本地工具路径: {', '.join(added)}")
 
 
 def _silence_third_party_loggers() -> None:

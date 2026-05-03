@@ -46,6 +46,9 @@ from wzry_ai.config.base import (
     SCRCPY_MAX_SIZE,         # 最大画面尺寸
     SCRCPY_BITRATE,          # 视频比特率
     SCRCPY_MAX_FPS,          # 最大帧率
+    LOCAL_SCRCPY_DIR,        # 项目内本地scrcpy工具目录
+    LOCAL_SCRCPY_ADB_PATH,   # 项目内本地adb路径
+    LOCAL_SCRCPY_EXE_PATH,   # 项目内本地scrcpy.exe路径
     
     # ADB设备配置
     ADB_DEVICE_IP,           # ADB设备IP地址
@@ -229,6 +232,7 @@ __all__ = [
     'DEFAULT_SUPPORT_HERO',
     'HERO_SELECT_PRIORITY', 'HERO_SELECT_MAX_RETRY',
     'SCRCPY_MAX_SIZE', 'SCRCPY_BITRATE', 'SCRCPY_MAX_FPS',
+    'LOCAL_SCRCPY_DIR', 'LOCAL_SCRCPY_ADB_PATH', 'LOCAL_SCRCPY_EXE_PATH',
     'ADB_DEVICE_IP', 'ADB_DEVICE_PORT', 'ADB_DEVICE_SERIAL', 'DEVICE_MODE', 'ADB_PATH',
     'DEFAULT_REGIONS',
     'MODEL1_CONFIDENCE_THRESHOLD', 'MODEL2_CONFIDENCE_THRESHOLD', 'YOLO_CONF', 'YOLO_IOU',

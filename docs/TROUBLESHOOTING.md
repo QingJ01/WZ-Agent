@@ -22,7 +22,7 @@ python GUI.py
 **真机**：
 - 确认 USB 调试已开启
 - 手机上已确认调试授权弹窗
-- 使用同一个 `adb.exe`，避免多版本 ADB 混用
+- 优先使用项目根目录 `scrcpy/adb.exe`；运行时会自动把 `scrcpy/` 加入 `PATH`，避免多版本 ADB 混用
 
 **MuMu**：
 - 确认模拟器已启动

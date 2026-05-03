@@ -305,6 +305,22 @@ class TestGameServicesState:
         services.frame_update_counter[0] += 1
         assert services.frame_update_counter[0] == initial_count + 1
 
+    def test_bootstrap_adds_local_scrcpy_dir_to_path(self, monkeypatch):
+        """测试运行时启动时全局加入本地scrcpy工具目录。"""
+        import logging
+        import os
+        from wzry_ai.app import bootstrap
+        from wzry_ai.config import LOCAL_SCRCPY_DIR
+
+        if not os.path.isdir(LOCAL_SCRCPY_DIR):
+            pytest.skip("local scrcpy tool directory not present")
+
+        monkeypatch.setenv("PATH", "")
+        bootstrap._prepend_adb_to_path(logging.getLogger("test"))
+
+        path_parts = os.environ["PATH"].split(os.pathsep)
+        assert LOCAL_SCRCPY_DIR in path_parts
+
     def test_init_scrcpy_falls_back_to_adb_screenshot_for_android_without_first_frame(
         self, services, monkeypatch
     ):
