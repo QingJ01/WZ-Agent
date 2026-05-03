@@ -58,6 +58,7 @@ pip install scrcpy-client==0.4.1 --no-deps
 
 ```powershell
 $env:WZRY_FRAME_SOURCE = "auto"
+$env:WZRY_INPUT_MODE = "adb"
 ```
 
 ---

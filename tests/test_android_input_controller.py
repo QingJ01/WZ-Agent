@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from wzry_ai.utils.keyboard_controller import (
     AndroidTouchController,
+    ScrcpyTouchController,
     build_android_touch_layout,
 )
 
@@ -157,4 +158,60 @@ def test_android_touch_controller_resumes_motion_after_tap(monkeypatch):
         ["adb", "-s", "serial", "shell", "input", "tap", "1812", "934"],
         ["adb", "-s", "serial", "shell", "input", "motionevent", "DOWN", "360", "885"],
         ["adb", "-s", "serial", "shell", "input", "motionevent", "MOVE", "468", "885"],
+    ]
+
+
+def test_scrcpy_touch_controller_taps_mapped_key():
+    import scrcpy
+
+    events = []
+
+    class FakeControl:
+        def touch(self, x, y, action, touch_id=-1):
+            events.append((x, y, action, touch_id))
+
+    class FakeClient:
+        control = FakeControl()
+
+    controller = ScrcpyTouchController(
+        client_getter=lambda: FakeClient(),
+        screen_size=(2400, 1080),
+        auto_start=False,
+    )
+
+    controller.tap("space", duration=0)
+
+    assert events == [
+        (2184, 864, scrcpy.ACTION_DOWN, -1),
+        (2184, 864, scrcpy.ACTION_UP, -1),
+    ]
+
+
+def test_scrcpy_touch_controller_keeps_motion_touch_held():
+    import scrcpy
+
+    events = []
+
+    class FakeControl:
+        def touch(self, x, y, action, touch_id=-1):
+            events.append((x, y, action, touch_id))
+
+    class FakeClient:
+        control = FakeControl()
+
+    controller = ScrcpyTouchController(
+        client_getter=lambda: FakeClient(),
+        screen_size=(2400, 1080),
+        auto_start=False,
+    )
+
+    controller.press("d")
+    first_sent = controller.pump_once()
+    still_holding = controller.pump_once()
+
+    assert first_sent is True
+    assert still_holding is True
+    assert events == [
+        (360, 885, scrcpy.ACTION_DOWN, -1),
+        (468, 885, scrcpy.ACTION_MOVE, -1),
     ]

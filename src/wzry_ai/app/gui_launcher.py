@@ -455,11 +455,14 @@ def build_runtime_environment(
     """Build the child process environment for ``Master_Auto.py``."""
     env = _build_repo_environment(config.repo_root, base_env=base_env)
     resolved_mode = resolve_runtime_mode(config.mode, config.adb_serial)
+    frame_source_mode = _normalize_frame_source_mode(config.frame_source_mode)
     env["WZRY_DEVICE_MODE"] = resolved_mode
-    env["WZRY_FRAME_SOURCE"] = _normalize_frame_source_mode(config.frame_source_mode)
+    env["WZRY_FRAME_SOURCE"] = frame_source_mode
     env["WZRY_SCRCPY_FIRST_FRAME_TIMEOUT"] = (
         config.scrcpy_first_frame_timeout or "10.0"
     )
+    if resolved_mode == "android":
+        env["WZRY_INPUT_MODE"] = "scrcpy" if frame_source_mode == "scrcpy" else "adb"
     env["WZRY_HUMAN_DEMO_ENABLED"] = "1" if config.human_demo_enabled else "0"
     env["WZRY_HUMAN_DEMO_SOURCE"] = _resolve_human_demo_source(
         config.human_demo_source,

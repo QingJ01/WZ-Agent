@@ -215,6 +215,7 @@ def test_build_runtime_environment_disables_human_demo_by_default(tmp_path):
     assert env["WZRY_DECISION_RECORD_DIR"] == str(tmp_path / "logs" / "decision_records")
     assert env["WZRY_FRAME_SOURCE"] == "scrcpy"
     assert env["WZRY_SCRCPY_FIRST_FRAME_TIMEOUT"] == "10.0"
+    assert "WZRY_INPUT_MODE" not in env
 
 
 def test_build_runtime_environment_allows_auto_frame_source(tmp_path):
@@ -231,6 +232,21 @@ def test_build_runtime_environment_allows_auto_frame_source(tmp_path):
 
     assert env["WZRY_FRAME_SOURCE"] == "auto"
     assert env["WZRY_SCRCPY_FIRST_FRAME_TIMEOUT"] == "7.5"
+    assert env["WZRY_INPUT_MODE"] == "adb"
+
+
+def test_build_runtime_environment_uses_scrcpy_input_for_forced_android_scrcpy(tmp_path):
+    config = RuntimeLaunchConfig(
+        mode="android",
+        adb_path="adb",
+        adb_serial="DEVICE1234567890",
+        repo_root=tmp_path,
+        frame_source_mode="scrcpy",
+    )
+
+    env = build_runtime_environment(config, base_env={"PATH": "base"})
+
+    assert env["WZRY_INPUT_MODE"] == "scrcpy"
 
 
 def test_validate_runtime_config_rejects_missing_detection_model(tmp_path):

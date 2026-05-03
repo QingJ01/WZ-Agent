@@ -34,7 +34,7 @@ import time
 import threading
 from dataclasses import dataclass
 from math import sqrt
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 # 从配置导入窗口名称（如果配置中有定义）
 try:
@@ -124,10 +124,15 @@ def build_android_touch_layout(width: int, height: int) -> AndroidTouchLayout:
 
 def _is_android_input_mode() -> bool:
     input_mode = os.environ.get("WZRY_INPUT_MODE", "").strip().lower()
-    if input_mode in {"adb", "android", "touch"}:
+    if input_mode in {"adb", "android", "touch", "scrcpy", "scrcpy_touch"}:
         return True
     device_mode = os.environ.get("WZRY_DEVICE_MODE", "").strip().lower()
     return device_mode in ANDROID_DEVICE_MODES
+
+
+def _is_scrcpy_input_mode() -> bool:
+    input_mode = os.environ.get("WZRY_INPUT_MODE", "").strip().lower()
+    return input_mode in {"scrcpy", "scrcpy_touch"}
 
 
 def _parse_size(value: str) -> Optional[tuple[int, int]]:
@@ -318,6 +323,150 @@ class AndroidTouchController:
                 self._last_touch_pos = (cx, cy)
             if self._last_touch_pos != (end_x, end_y):
                 self._run_motion_event("MOVE", end_x, end_y)
+                self._last_touch_pos = (end_x, end_y)
+            return True
+
+    def _movement_loop(self) -> None:
+        while not self._stop.is_set():
+            sent = self.pump_once()
+            self._stop.wait(0.02 if sent else 0.05)
+
+    def stop(self) -> None:
+        self._stop.set()
+        with self._command_lock:
+            self._release_motion_touch()
+        if self._thread is not None:
+            self._thread.join(timeout=1)
+
+
+class ScrcpyTouchController:
+    """press/release/tap API backed by the active scrcpy control socket."""
+
+    def __init__(
+        self,
+        screen_size: Optional[tuple[int, int]] = None,
+        client_getter: Optional[Callable[[], Any | None]] = None,
+        auto_start: bool = True,
+    ):
+        from wzry_ai.utils.scrcpy_control import get_active_scrcpy_client
+
+        self.client_getter = client_getter or get_active_scrcpy_client
+        self._pressed: set[str] = set()
+        self._lock = threading.Lock()
+        self._command_lock = threading.RLock()
+        self._stop = threading.Event()
+        self._thread: Optional[threading.Thread] = None
+        self.layout = build_android_touch_layout(*self._resolve_screen_size(screen_size))
+        self._touch_active = False
+        self._last_touch_pos: Optional[tuple[int, int]] = None
+        self._warned_missing_client = False
+        logger.info("使用 scrcpy 触控控制器")
+        if auto_start:
+            self._thread = threading.Thread(
+                target=self._movement_loop,
+                name="ScrcpyTouchMovement",
+                daemon=True,
+            )
+            self._thread.start()
+
+    def _resolve_screen_size(
+        self, screen_size: Optional[tuple[int, int]]
+    ) -> tuple[int, int]:
+        if screen_size:
+            return screen_size
+        env_size = _parse_size(os.environ.get("WZRY_TOUCH_SIZE", ""))
+        if env_size:
+            return env_size
+        if _android_touch_size:
+            return _android_touch_size
+        return (2400, 1080)
+
+    def _get_control(self):
+        client = self.client_getter()
+        control = getattr(client, "control", None) if client is not None else None
+        if control is None and not self._warned_missing_client:
+            logger.warning("scrcpy 触控控制器尚未拿到可用 control socket")
+            self._warned_missing_client = True
+        return control
+
+    def _send_touch(self, action: int, x: int, y: int) -> bool:
+        control = self._get_control()
+        if control is None:
+            return False
+        control.touch(int(x), int(y), action)
+        return True
+
+    def _release_motion_touch(self) -> None:
+        if not self._touch_active:
+            return
+        import scrcpy
+
+        x, y = self._last_touch_pos or self.layout.joystick_center
+        self._send_touch(scrcpy.ACTION_UP, x, y)
+        self._touch_active = False
+        self._last_touch_pos = None
+
+    def press(self, key):
+        normalized = str(key).lower()
+        if normalized in MOVEMENT_KEYS:
+            with self._lock:
+                self._pressed.add(normalized)
+            return
+        self.tap(normalized)
+
+    def release(self, key):
+        normalized = str(key).lower()
+        if normalized in MOVEMENT_KEYS:
+            with self._lock:
+                self._pressed.discard(normalized)
+
+    def tap(self, key, duration=None):
+        _ = duration
+        normalized = str(key).lower()
+        pos = self.layout.skill_taps.get(normalized)
+        if pos is None:
+            logger.debug(f"ScrcpyTouchController 忽略未映射按键: {key}")
+            return
+
+        import scrcpy
+
+        x, y = pos
+        with self._command_lock:
+            was_holding = self._touch_active
+            if was_holding:
+                self._release_motion_touch()
+            if self._send_touch(scrcpy.ACTION_DOWN, x, y):
+                self._send_touch(scrcpy.ACTION_UP, x, y)
+            if was_holding:
+                self.pump_once()
+
+    def pump_once(self, duration_ms: Optional[int] = None) -> bool:
+        _ = duration_ms
+        import scrcpy
+
+        with self._command_lock:
+            with self._lock:
+                pressed = set(self._pressed)
+            dx = (1 if "d" in pressed else 0) - (1 if "a" in pressed else 0)
+            dy = (1 if "s" in pressed else 0) - (1 if "w" in pressed else 0)
+            if dx == 0 and dy == 0:
+                self._release_motion_touch()
+                return False
+
+            magnitude = sqrt(dx * dx + dy * dy) or 1.0
+            cx, cy = self.layout.joystick_center
+            radius = self.layout.joystick_radius
+            end_x = int(cx + radius * dx / magnitude)
+            end_y = int(cy + radius * dy / magnitude)
+
+            if not self._touch_active:
+                if not self._send_touch(scrcpy.ACTION_DOWN, cx, cy):
+                    return False
+                self._touch_active = True
+                self._last_touch_pos = (cx, cy)
+            if self._last_touch_pos != (end_x, end_y):
+                if not self._send_touch(scrcpy.ACTION_MOVE, end_x, end_y):
+                    return False
                 self._last_touch_pos = (end_x, end_y)
             return True
 
@@ -701,8 +850,11 @@ def _get_keyboard():
     if _keyboard is None:
         # 实例不存在，创建新的键盘控制器
         if _is_android_input_mode():
-            logger.info("使用 ADB 触控控制器")
-            _keyboard = AndroidTouchController()
+            if _is_scrcpy_input_mode():
+                _keyboard = ScrcpyTouchController()
+            else:
+                logger.info("使用 ADB 触控控制器")
+                _keyboard = AndroidTouchController()
         else:
             _keyboard = KeyboardController()
     # 返回键盘控制器实例

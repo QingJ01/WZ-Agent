@@ -97,6 +97,7 @@ $env:WZRY_ADB_PATH = "D:\tools\adb.exe"
 $env:WZRY_ADB_DEVICE = "your-device-serial"
 $env:WZRY_FRAME_SOURCE = "scrcpy"
 $env:WZRY_SCRCPY_FIRST_FRAME_TIMEOUT = "10.0"
+$env:WZRY_INPUT_MODE = "scrcpy"
 $env:WZRY_AI_CONTROL_ENABLED = "0"
 python Master_Auto.py
 ```

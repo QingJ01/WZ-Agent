@@ -358,12 +358,18 @@ class GameServices:
 
         first_frame_timeout = _resolve_scrcpy_first_frame_timeout()
         if self._wait_for_first_scrcpy_frame(timeout=first_frame_timeout):
+            from wzry_ai.utils.scrcpy_control import set_active_scrcpy_client
+
+            set_active_scrcpy_client(self.scrcpy_tool.client)
             logger.info("ScrcpyTool 连接成功")
             return
 
         if frame_source_mode == "auto" and self._should_use_android_device():
             logger.warning("scrcpy 未收到有效首帧，切换到 ADB 截图帧源")
             try:
+                from wzry_ai.utils.scrcpy_control import clear_active_scrcpy_client
+
+                clear_active_scrcpy_client(self.scrcpy_tool.client)
                 self.scrcpy_tool.client.stop()
             except Exception as exc:
                 logger.debug(f"停止无帧 scrcpy 客户端失败: {exc}")
@@ -372,6 +378,9 @@ class GameServices:
 
         if frame_source_mode == "scrcpy":
             try:
+                from wzry_ai.utils.scrcpy_control import clear_active_scrcpy_client
+
+                clear_active_scrcpy_client(self.scrcpy_tool.client)
                 self.scrcpy_tool.client.stop()
             except Exception as exc:
                 logger.debug(f"停止无帧 scrcpy 客户端失败: {exc}")
@@ -546,6 +555,9 @@ class GameServices:
             if self._adb_screenshot_thread is not None:
                 self._adb_screenshot_thread.join(timeout=2)
             if self.scrcpy_tool:
+                from wzry_ai.utils.scrcpy_control import clear_active_scrcpy_client
+
+                clear_active_scrcpy_client(self.scrcpy_tool.client)
                 self.scrcpy_tool.client.stop()
             self.thread_supervisor.stop_all()
             cv2.destroyAllWindows()
