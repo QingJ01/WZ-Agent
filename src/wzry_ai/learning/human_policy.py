@@ -43,6 +43,10 @@ RUNTIME_EXECUTABLE_ACTION_NAMES = {
     "cast_active_item",
     "recover",
     "basic_attack",
+    "level_ult",
+    "level_1",
+    "level_2",
+    "buy_item",
 }
 MIN_RUNTIME_EXECUTABLE_ACTION_RATIO = 0.10
 MAX_NO_OP_ACTION_RATIO = 0.90

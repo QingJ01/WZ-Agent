@@ -894,6 +894,10 @@ class YaoSkillLogic(HeroSkillLogicBase):
             "cast_active_item",
             "recover",
             "basic_attack",
+            "level_ult",
+            "level_1",
+            "level_2",
+            "buy_item",
         }
         if prediction.action not in allowed:
             return fallback_action
@@ -1315,6 +1319,26 @@ class YaoSkillLogic(HeroSkillLogicBase):
 
         if action.action == "basic_attack":
             self.basic_attack()
+            return action
+
+        if action.action == "level_ult":
+            self.tap_skill(KEY_LEVEL_ULT, "升级大招")
+            self.last_levelup_time = current_time
+            return action
+
+        if action.action == "level_1":
+            self.tap_skill(KEY_LEVEL_1, "升级技能1")
+            self.last_levelup_time = current_time
+            return action
+
+        if action.action == "level_2":
+            self.tap_skill(KEY_LEVEL_2, "升级技能2")
+            self.last_levelup_time = current_time
+            return action
+
+        if action.action == "buy_item":
+            self.tap_skill(KEY_BUY_ITEM, "买装备")
+            self.last_buy_time = current_time
             return action
 
         return None

@@ -486,9 +486,11 @@ class ScrcpyTouchController:
         import scrcpy
 
         x, y = pos
+        if duration is None:
+            duration = random.uniform(0.04, 0.06)
         with self._command_lock:
             if self._send_touch(scrcpy.ACTION_DOWN, x, y, self._tap_touch_id):
-                if duration:
+                if duration and float(duration) > 0:
                     time.sleep(float(duration))
                 self._send_touch(scrcpy.ACTION_UP, x, y, self._tap_touch_id)
 

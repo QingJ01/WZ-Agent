@@ -35,6 +35,8 @@ from wzry_ai.config import (
 
 logger = get_logger(__name__)
 
+LEVEL_UP_TAP_GAP_SECONDS = 0.08
+
 # ===== 向后兼容的按键别名 =====
 # 保留原有常量名称，映射到 config/keys.py 中的统一常量
 # 各英雄 _v2 文件通过 from skills.hero_skill_logic_base import KEY_CAST_1 等使用
@@ -222,7 +224,9 @@ class HeroSkillLogicBase(ABC):
 
         if current_time - self.last_levelup_time > 5:
             self.tap_skill(KEY_LEVEL_ULT, "升级大招", silent=True)
+            time.sleep(LEVEL_UP_TAP_GAP_SECONDS)
             self.tap_skill(KEY_LEVEL_1, "升级技能1", silent=True)
+            time.sleep(LEVEL_UP_TAP_GAP_SECONDS)
             self.tap_skill(KEY_LEVEL_2, "升级技能2", silent=True)
             self.last_levelup_time = current_time
 

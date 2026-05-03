@@ -37,6 +37,45 @@ def test_yao_maintenance_handles_minimap_only_health_info(monkeypatch):
     assert taps[:4] == ["4", "3", "1", "2"]
 
 
+def test_yao_maintenance_adds_gap_between_level_taps(monkeypatch):
+    from wzry_ai.skills import hero_skill_logic_base
+    from wzry_ai.skills import yao_skill_logic_v2
+
+    events = []
+    monkeypatch.setattr(
+        hero_skill_logic_base,
+        "tap",
+        lambda key, times=1, interval=None: events.append(("tap", key)),
+    )
+    monkeypatch.setattr(
+        hero_skill_logic_base.time,
+        "sleep",
+        lambda value: events.append(("sleep", value)),
+    )
+    monkeypatch.setattr(yao_skill_logic_v2, "get_frame", lambda timeout=0.02: None)
+
+    skill_logic = yao_skill_logic_v2.YaoSkillLogic()
+    skill_logic.health_info = {
+        "self_health": None,
+        "self_pos": None,
+        "team_health": [],
+        "enemy_health": [],
+        "is_moving": False,
+        "skill_policy": "aggressive",
+    }
+
+    skill_logic.check_and_use_skills()
+
+    assert events[:6] == [
+        ("tap", "4"),
+        ("tap", "3"),
+        ("sleep", 0.08),
+        ("tap", "1"),
+        ("sleep", 0.08),
+        ("tap", "2"),
+    ]
+
+
 def _prepare_skill_logic(monkeypatch):
     from wzry_ai.skills import hero_skill_logic_base
     from wzry_ai.skills import yao_skill_logic_v2
@@ -239,6 +278,32 @@ def test_yao_runtime_ignores_low_confidence_human_policy_prediction(monkeypatch)
     skill_logic.check_and_use_skills()
 
     assert taps == []
+
+
+def test_yao_runtime_executes_human_policy_level_1_prediction(monkeypatch):
+    from wzry_ai.learning.human_policy import HumanPolicyPrediction
+
+    skill_logic, taps = _prepare_skill_logic(monkeypatch)
+
+    class FakeHumanPolicyRuntime:
+        confidence_threshold = 0.7
+
+        def predict(self, state):
+            return HumanPolicyPrediction("level_1", 0.95)
+
+    skill_logic.human_policy_runtime = FakeHumanPolicyRuntime()
+    skill_logic.health_info = {
+        "self_health": None,
+        "self_pos": (900, 400),
+        "team_health": [{"health": 95, "pos": (930, 410)}],
+        "enemy_health": [],
+        "is_moving": False,
+        "skill_policy": "aggressive",
+    }
+
+    skill_logic.check_and_use_skills()
+
+    assert taps == ["1"]
 
 
 def test_yao_runtime_allows_policy_to_hold_attachment(monkeypatch):

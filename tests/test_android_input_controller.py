@@ -223,6 +223,41 @@ def test_scrcpy_touch_controller_taps_mapped_key():
     ]
 
 
+def test_scrcpy_touch_controller_uses_default_tap_duration(monkeypatch):
+    import scrcpy
+
+    events = []
+    sleeps = []
+
+    class FakeControl:
+        def touch(self, x, y, action, touch_id=-1):
+            events.append((x, y, action, touch_id))
+
+    class FakeClient:
+        control = FakeControl()
+
+    monkeypatch.setattr(keyboard_controller.random, "uniform", lambda _a, _b: 0.05)
+    monkeypatch.setattr(
+        keyboard_controller.time,
+        "sleep",
+        lambda value: sleeps.append(value),
+    )
+
+    controller = ScrcpyTouchController(
+        client_getter=lambda: FakeClient(),
+        screen_size=(2400, 1080),
+        auto_start=False,
+    )
+
+    controller.tap("q")
+
+    assert events == [
+        (1812, 934, scrcpy.ACTION_DOWN, 2),
+        (1812, 934, scrcpy.ACTION_UP, 2),
+    ]
+    assert sleeps == [0.05]
+
+
 def test_scrcpy_touch_controller_keeps_motion_touch_held():
     import scrcpy
 

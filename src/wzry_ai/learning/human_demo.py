@@ -36,9 +36,9 @@ ACTION_BY_KEY = {
     "c": "recover",
     "space": "basic_attack",
     "b": "recall",
-    "1": "level_ult",
-    "2": "level_1",
-    "3": "level_2",
+    "1": "level_1",
+    "2": "level_2",
+    "3": "level_ult",
     "4": "buy_item",
 }
 

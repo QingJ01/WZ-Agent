@@ -44,6 +44,14 @@ def test_keyboard_mapper_maps_mumu_keys():
     assert mapper.map_key_snapshot({"4"}).action == "buy_item"
 
 
+def test_keyboard_mapper_uses_runtime_level_key_mapping():
+    mapper = HumanActionMapper(width=2400, height=1080)
+
+    assert mapper.map_key_snapshot({"1"}).action == "level_1"
+    assert mapper.map_key_snapshot({"2"}).action == "level_2"
+    assert mapper.map_key_snapshot({"3"}).action == "level_ult"
+
+
 def test_adb_getevent_parser_extracts_touch_coordinates():
     parser = AdbGeteventParser(width=2400, height=1080)
     events = [

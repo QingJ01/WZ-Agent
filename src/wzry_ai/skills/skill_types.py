@@ -37,6 +37,8 @@ from wzry_ai.config.keys import (
     KEY_LEVEL_ULT, KEY_LEVEL_1, KEY_LEVEL_2,
 )
 
+LEVEL_UP_TAP_GAP_SECONDS = 0.08
+
 
 class DamageSkill(SkillBase):
     """
@@ -515,7 +517,9 @@ class AutoMaintenanceSkill(SkillBase):
         elif self.config.skill_id == "level_up":
             # 优先升级顺序：大招 > 一技能 > 二技能
             tap(KEY_LEVEL_ULT, 1, 0.05)  # 先升级大招（数字键3）
+            time.sleep(LEVEL_UP_TAP_GAP_SECONDS)
             tap(KEY_LEVEL_1, 1, 0.05)  # 再升级一技能（数字键1）
+            time.sleep(LEVEL_UP_TAP_GAP_SECONDS)
             tap(KEY_LEVEL_2, 1, 0.05)  # 最后升级二技能（数字键2）
             self._last_levelup_time = current_time  # 记录本次升级时间
 
