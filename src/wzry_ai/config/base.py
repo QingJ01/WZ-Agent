@@ -66,6 +66,7 @@ def _get_local_scrcpy_dir() -> str:
 LOCAL_SCRCPY_DIR = _get_local_scrcpy_dir()
 LOCAL_SCRCPY_ADB_PATH = os.path.join(LOCAL_SCRCPY_DIR, "adb.exe")
 LOCAL_SCRCPY_EXE_PATH = os.path.join(LOCAL_SCRCPY_DIR, "scrcpy.exe")
+LOCAL_SCRCPY_SERVER_PATH = os.path.join(LOCAL_SCRCPY_DIR, "scrcpy-server")
 
 # ========== ADB 设备配置 ==========
 # ADB（Android Debug Bridge）用于与安卓模拟器通信

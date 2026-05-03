@@ -54,7 +54,7 @@ pip install av==17.0.1
 pip install scrcpy-client==0.4.1 --no-deps
 ```
 
-同时确认手机已授权 USB 调试、屏幕已解锁、项目根目录存在 `scrcpy/adb.exe`。如果只是临时验证流程，可在 GUI 中把“视觉帧源模式”切换为 `scrcpy 优先，失败后 ADB 截图`，或设置：
+同时确认手机已授权 USB 调试、屏幕已解锁、项目根目录存在 `scrcpy/adb.exe` 和 `scrcpy/scrcpy-server`。Android 16 等新系统需要本地官方 `scrcpy-server`，否则 Python scrcpy-client 自带的旧 server 可能连上但不出首帧。如果只是临时验证流程，可在 GUI 中把“视觉帧源模式”切换为 `scrcpy 优先，失败后 ADB 截图`，或设置：
 
 ```powershell
 $env:WZRY_FRAME_SOURCE = "auto"

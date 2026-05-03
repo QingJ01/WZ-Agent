@@ -13,10 +13,13 @@ Scrcpy视频流工具模块
 
 # 导入操作系统接口模块
 import os
+import subprocess
 
 # 导入系统相关模块
 import sys
+import time
 from importlib import import_module
+from functools import lru_cache
 from typing import Any, Optional, cast
 
 # 禁用scrcpy的H.264解码警告输出
@@ -28,7 +31,7 @@ os.environ["AV_LOG_FORCE_NOCOLOR"] = "1"
 import cv2
 
 # adbutils库，用于ADB设备管理
-from adbutils import AdbDevice
+from adbutils import AdbDevice, AdbError, Network
 
 # av库中的CodecContext，用于视频解码
 from av.codec import CodecContext
@@ -41,7 +44,13 @@ import av
 from wzry_ai.device.ADBTool import ADBTool
 
 # 从配置导入scrcpy相关参数
-from wzry_ai.config import SCRCPY_BITRATE, SCRCPY_MAX_FPS, SCRCPY_MAX_SIZE
+from wzry_ai.config import (
+    LOCAL_SCRCPY_EXE_PATH,
+    LOCAL_SCRCPY_SERVER_PATH,
+    SCRCPY_BITRATE,
+    SCRCPY_MAX_FPS,
+    SCRCPY_MAX_SIZE,
+)
 
 # 导入日志工具
 from wzry_ai.utils.logging_utils import get_logger
@@ -61,6 +70,72 @@ logger = get_logger(__name__)
 # 保存原始的stream_loop方法，用于后续替换
 _scrcpy_client_class = cast(Any, scrcpy.Client)
 _original_stream_loop = getattr(_scrcpy_client_class, "_Client__stream_loop")
+_original_deploy_server = getattr(_scrcpy_client_class, "_Client__deploy_server")
+_original_init_server_connection = getattr(
+    _scrcpy_client_class, "_Client__init_server_connection"
+)
+
+
+@lru_cache(maxsize=1)
+def _detect_local_scrcpy_version() -> str:
+    """Return the local scrcpy.exe version used by the matching scrcpy-server."""
+    env_version = os.environ.get("WZRY_SCRCPY_SERVER_VERSION", "").strip()
+    if env_version:
+        return env_version
+
+    if os.path.isfile(LOCAL_SCRCPY_EXE_PATH):
+        try:
+            completed = subprocess.run(
+                [LOCAL_SCRCPY_EXE_PATH, "--version"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=3,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            for line in completed.stdout.splitlines():
+                parts = line.strip().split()
+                if len(parts) >= 2 and parts[0].lower() == "scrcpy":
+                    return parts[1]
+        except Exception as exc:
+            logger.debug(f"[ScrcpyTool] 读取本地 scrcpy 版本失败: {exc}")
+
+    return "3.3.4"
+
+
+def _should_use_local_scrcpy_server() -> bool:
+    """Whether to replace scrcpy-client's bundled v1.24 server."""
+    mode = os.environ.get("WZRY_SCRCPY_SERVER_MODE", "auto").strip().lower()
+    if mode in {"python", "bundled", "legacy"}:
+        return False
+    if mode not in {"auto", "local", "official"}:
+        logger.warning(
+            f"未知 WZRY_SCRCPY_SERVER_MODE={mode!r}，按 auto 处理"
+        )
+
+    if os.path.isfile(LOCAL_SCRCPY_SERVER_PATH):
+        return True
+
+    if mode in {"local", "official"}:
+        raise FileNotFoundError(
+            f"未找到本地 scrcpy-server: {LOCAL_SCRCPY_SERVER_PATH}"
+        )
+    return False
+
+
+def _configure_local_scrcpy_server(client: Any, use_local_server: bool) -> None:
+    """Attach local-server options to a scrcpy.Client instance."""
+    setattr(client, "_wzry_use_local_scrcpy_server", use_local_server)
+    if not use_local_server:
+        return
+    setattr(client, "_wzry_local_scrcpy_server_path", LOCAL_SCRCPY_SERVER_PATH)
+    setattr(client, "_wzry_local_scrcpy_server_version", _detect_local_scrcpy_version())
+    logger.info(
+        "[ScrcpyTool] 使用本地 scrcpy-server: "
+        f"{LOCAL_SCRCPY_SERVER_PATH} "
+        f"(version={getattr(client, '_wzry_local_scrcpy_server_version')})"
+    )
 
 
 def _patched_stream_loop(self) -> None:
@@ -139,8 +214,72 @@ def _patched_stream_loop(self) -> None:
                 self._Client__send_to_listeners(scrcpy.EVENT_FRAME, None)
 
 
+def _patched_deploy_server(self) -> None:
+    """Deploy either scrcpy-client's bundled server or the local official server."""
+    if not getattr(self, "_wzry_use_local_scrcpy_server", False):
+        return _original_deploy_server(self)
+
+    server_path = getattr(self, "_wzry_local_scrcpy_server_path")
+    server_version = getattr(self, "_wzry_local_scrcpy_server_version", "3.3.4")
+    self.device.push(server_path, "/data/local/tmp/scrcpy-server.jar")
+
+    commands = [
+        "CLASSPATH=/data/local/tmp/scrcpy-server.jar",
+        "app_process",
+        "/",
+        "com.genymobile.scrcpy.Server",
+        server_version,
+        "log_level=info",
+        "tunnel_forward=true",
+        "audio=false",
+        "control=true",
+        "cleanup=false",
+        "raw_stream=true",
+        "video_codec=h264",
+        f"max_size={self.max_width}",
+        f"max_fps={self.max_fps}",
+        f"video_bit_rate={self.bitrate}",
+    ]
+    self._Client__server_stream = self.device.shell(commands, stream=True)
+
+
+def _connect_scrcpy_socket(device: Any, timeout_ms: int):
+    for _ in range(max(1, timeout_ms // 100)):
+        try:
+            return device.create_connection(Network.LOCAL_ABSTRACT, "scrcpy")
+        except AdbError:
+            time.sleep(0.1)
+    raise ConnectionError(
+        f"Failed to connect local scrcpy-server after {timeout_ms / 1000:.1f} seconds"
+    )
+
+
+def _patched_init_server_connection(self) -> None:
+    """
+    Connect to scrcpy sockets.
+
+    Official scrcpy 3.x with raw_stream=true sends raw H.264 immediately, without
+    the dummy byte, device name and resolution header used by scrcpy-server v1.24.
+    """
+    if not getattr(self, "_wzry_use_local_scrcpy_server", False):
+        return _original_init_server_connection(self)
+
+    timeout_ms = int(getattr(self, "connection_timeout", 3000) or 3000)
+    self._Client__video_socket = _connect_scrcpy_socket(self.device, timeout_ms)
+    self.control_socket = _connect_scrcpy_socket(self.device, timeout_ms)
+    self.device_name = getattr(self.device, "serial", None) or "Android"
+    self.resolution = None
+    self._Client__video_socket.setblocking(False)
+
+
 # 应用补丁：用优化后的函数替换原始函数
 setattr(_scrcpy_client_class, "_Client__stream_loop", _patched_stream_loop)
+setattr(_scrcpy_client_class, "_Client__deploy_server", _patched_deploy_server)
+setattr(
+    _scrcpy_client_class,
+    "_Client__init_server_connection",
+    _patched_init_server_connection,
+)
 
 # 记录补丁应用成功的日志
 logger.info("[scrcpy_patch] ✓ 已应用多线程解码优化补丁 (thread_count=4)")
@@ -281,15 +420,21 @@ class ScrcpyTool(ADBTool):
         返回值：
             scrcpy.Client: 配置好的scrcpy客户端
         """
+        use_local_server = _should_use_local_scrcpy_server()
+        max_width = SCRCPY_MAX_SIZE if use_local_server else 0
+        connection_timeout = 8000 if use_local_server else 3000
+
         # 创建scrcpy客户端，配置解码参数
         # 注意：max_width必须在__init__时传入，创建后修改无效
         client = scrcpy.Client(
             device=self.device_serial,  # ADB设备
-            max_width=0,  # 使用设备原始分辨率
+            max_width=max_width,  # 本地scrcpy-server按配置限制长边，降低真机解码压力
             max_fps=SCRCPY_MAX_FPS,  # 最大帧率
             bitrate=SCRCPY_BITRATE,  # 视频比特率
             flip=False,  # 不水平翻转
+            connection_timeout=connection_timeout,
         )
+        _configure_local_scrcpy_server(client, use_local_server)
         return client
 
     def Set_Client(self, device: AdbDevice):
@@ -300,7 +445,17 @@ class ScrcpyTool(ADBTool):
             device: ADB设备对象
         """
         # 使用指定设备创建新的scrcpy客户端
-        self.client = scrcpy.Client(device)
+        use_local_server = _should_use_local_scrcpy_server()
+        max_width = SCRCPY_MAX_SIZE if use_local_server else 0
+        connection_timeout = 8000 if use_local_server else 3000
+        self.client = scrcpy.Client(
+            device,
+            max_width=max_width,
+            max_fps=SCRCPY_MAX_FPS,
+            bitrate=SCRCPY_BITRATE,
+            connection_timeout=connection_timeout,
+        )
+        _configure_local_scrcpy_server(self.client, use_local_server)
 
     def get_Client(self) -> scrcpy.Client:
         """

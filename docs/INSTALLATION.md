@@ -34,7 +34,7 @@ pip install -r requirements-dev.txt
 
 WZ-Agent 默认使用 `scrcpy` 强制帧源，不再静默回退到 ADB 截图。这样首帧失败时会直接暴露问题，避免看似在运行但实际帧率很低。
 
-如果你把官方 scrcpy Windows 工具包解压到项目根目录的 `scrcpy/` 目录，WZ-Agent 会优先使用其中的 `adb.exe`，并在运行时自动把 `scrcpy/` 加入 `PATH`。该目录只在本地使用，不提交到 GitHub。
+如果你把官方 scrcpy Windows 工具包解压到项目根目录的 `scrcpy/` 目录，WZ-Agent 会优先使用其中的 `adb.exe` 和 `scrcpy-server`，并在运行时自动把 `scrcpy/` 加入 `PATH`。该目录只在本地使用，不提交到 GitHub。
 
 ```powershell
 pip install av==17.0.1
